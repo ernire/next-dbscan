@@ -1,0 +1,22 @@
+#!/bin/bash
+#SBATCH --account=cascade
+#SBATCH --partition=#PARTITION#
+#SBATCH --job-name=#JOB_NAME#
+#SBATCH -o #OUTPATH#
+#SBATCH -e #ERRPATH#
+#SBATCH --nodes=#NODES#
+#SBATCH --ntasks-per-node=#NTASKS_PER_NODE#
+#SBATCH --time=#TIME#
+#SBATCH --cpus-per-task=#CPUS_PER_TASK#
+
+module load Architecture/KNL
+module load Intel
+
+#EXPORT_NUM_THREADS#
+
+make clean -C /p/scratch/ccascade/ernir/dbscan/hpdbscan/
+make -C /p/scratch/ccascade/ernir/dbscan/hpdbscan/
+
+/usr/bin/time -v #PROCESS#
+touch #READY#
+

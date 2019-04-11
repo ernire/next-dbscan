@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jube> 
+    <benchmark name="hpdbscan_booster_ahn" outpath="./hpdbscan_booster_ahn">
+        <comment>
+            A JUBE script that compiles and runs HPDBSCAN hybrid on a single SDV node
+        </comment>
+
+        <parameterset name="hpdbscan_executeset">
+            <parameter name="partition">booster</parameter>
+            <parameter name="nodes">1</parameter>
+            <parameter name="tasks_per_node">1</parameter>
+            <parameter name="cpus_per_task">256</parameter>
+            <parameter name="index" type="int">0</parameter>
+            <parameter name="ms" mode="python">["125"][$index]</parameter>
+            <parameter name="es" mode="python">["2"][$index]</parameter>
+            <parameter name="export_threads">export OMP_NUM_THREADS=$cpus_per_task</parameter>
+            <parameter name="walltime">06:00:00</parameter>
+            <parameter name="executable">/p/scratch/ccascade/ernir/dbscan/hpdbscan/dbscan</parameter>
+            <parameter name="data">/p/scratch/ccascade/ernir/dbscan/input/C_25GN1.txt</parameter>
+            <parameter name="process">$executable -m $ms -e $es -t $cpus_per_task $data</parameter>
+        </parameterset>
+        
+        <patternset name="pattern">
+            <pattern name="total_time_pat">^Took: [0-9]*\.[0-9]*</pattern>
+        </patternset>
+
+        <step name="run">
+            <use from="jube_base.xml">base_executeset</use>
+            <use>hpdbscan_executeset</use>
+            <use from="jube_base.xml">files,sub_job</use>
+            <do done_file="$ready_file">
+               $submit_cmd $job_file 
+            </do>
+        </step>
+        
+        <analyzer name="analyze">
+            <use>pattern</use>
+            <analyse step="run">
+                <file>stdout</file>
+            </analyse>
+        </analyzer>
+        
+        <result>
+            <use>analyze</use>
+            <table name="Took" style="csv">
+                <column>ms</column>
+                <column>es</column>
+                <column>cpus_per_task</column>
+                <column>total_time_pat</column>
+            </table>
+        </result>
+
+    </benchmark>
+</jube>
+

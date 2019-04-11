@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jube> 
+    <benchmark name="ndbscan_booster_ahn" outpath="./ndbscan_booster_ahn">
+        <comment>
+            A JUBE script that compiles and runs NextDBSCAN on a single KNL node
+        </comment>
+
+        <parameterset name="ndbscan_executeset">
+            <parameter name="partition">booster</parameter>
+            <parameter name="nodes">1</parameter>
+            <parameter name="tasks_per_node">1</parameter>
+            <parameter name="cpus_per_task">1, 2, 4, 8, 16, 32, 64, 128, 256</parameter>
+            <parameter name="export_threads">export OMP_NUM_THREADS=$cpus_per_task</parameter>
+            <parameter name="walltime">06:00:00</parameter>
+            <parameter name="index" type="int">0</parameter>
+            <parameter name="ms" mode="python">["125"][$index]</parameter>
+            <parameter name="es" mode="python">["2"][$index]</parameter>
+            <parameter name="executable">/p/scratch/ccascade/ernir/dbscan/ndbscan-omp/dbscan</parameter>
+            <parameter name="data">/p/scratch/ccascade/ernir/dbscan/input/bremen.csv</parameter>
+            <parameter name="process">$executable -m $ms -e $es -t $cpus_per_task $data</parameter>
+        </parameterset>
+        
+        <patternset name="pattern">
+            <pattern name="total_time_pat">^ndbscan [0-9]* milliseconds</pattern>
+            <pattern name="read_input_pat">^Read input took: [0-9]* milliseconds</pattern>
+            <pattern name="memory_init_pat">^Memory and init: [0-9]* milliseconds</pattern>
+            <pattern name="point_index_pat">^Point indexing: [0-9]* milliseconds</pattern>
+            <pattern name="cell_boundaries_pat">^Cell boundaries: [0-9]* milliseconds</pattern>
+            <pattern name="bord_cell_pat">^Border cell detection: [0-9]* milliseconds</pattern>
+            <pattern name="cell_tree_pat">^Process cell tree: [0-9]* milliseconds</pattern>
+        </patternset>
+
+        <step name="run">
+            <use from="jube_base.xml">base_executeset</use>
+            <use>ndbscan_executeset</use>
+            <use from="jube_base.xml">files,sub_job</use>
+            <do done_file="$ready_file">
+               $submit_cmd $job_file 
+            </do>
+        </step>
+        
+        <analyzer name="analyze">
+            <use>pattern</use>
+            <analyse step="run">
+                <file>stdout</file>
+            </analyse>
+        </analyzer>
+        
+        <result>
+            <use>analyze</use>
+            <table name="Took" style="csv">
+                <column>cpus_per_task</column>
+                <column>ms</column>
+                <column>es</column>
+                <column>total_time_pat</column>
+            </table>
+        </result>
+
+    </benchmark>
+</jube>
+
