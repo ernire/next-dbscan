@@ -728,12 +728,9 @@ void ndbscan(struct_label **p_labels, float *v_coords, const int m, const float 
     omp_set_num_threads(n_threads);
     auto t1 = std::chrono::high_resolution_clock::now();
     float e2 = e * e;
-    // TODO
-    // BREMEN
-//    float e_inner = (e / sqrtf(2)) - 1.1f;
-
-    float e_inner = (e / (1.2f*sqrtf(2)));
-    std::cout << "e_inner: " << e_inner << std::endl;
+    float e_inner = (e / sqrt(2)) / 2;
+//    float e_inner = (e / (1.2f*sqrtf(2)));
+//    std::cout << "e_inner: " << e_inner << std::endl;
 
     calc_bounds(v_coords, n, min_bounds, max_bounds, max_d);
     for (int d = 0; d < max_d; d++) {
@@ -808,7 +805,7 @@ void ndbscan(struct_label **p_labels, float *v_coords, const int m, const float 
               << " milliseconds\n";
 }
 
-struct_label **read_input(char *in_file, float *v_points, int n, int max_d) {
+struct_label **read_input(std::string in_file, float *v_points, int n, int max_d) {
     std::ifstream is(in_file);
     std::string line, buf;
     auto **point_labels = new struct_label *[n];
@@ -846,148 +843,45 @@ void displayOutput(const bool *is_core, struct_label** ps, int n) {
 
     int cnt = 0;
     auto* labels = new bool[n];
-    for (int i = 0; i < n; i++) {
-        labels[i] = false;
-    }
+    std::fill(labels, labels + n, false);
+    #pragma omp for
     for (int i = 0; i < n; i++) {
         labels[get_label(ps[i])->label] = true;
     }
+    #pragma omp for
     for (int i = 0; i < n; i++) {
-        if (labels[i])
+        if (labels[i]) {
+            #pragma omp atomic
             ++cnt;
+        }
     }
     std::cout << "Estimated clusters: " << cnt << std::endl;
     int p_noise = 0;
+    #pragma omp for
     for (int i = 0; i < n; i++) {
-        if (get_label(ps[i])->label == UNASSIGNED)
+        if (get_label(ps[i])->label == UNASSIGNED) {
+            #pragma omp atomic
             p_noise++;
+        }
     }
     std::cout << "Noise points: " << p_noise << std::endl;
 }
 
-// Erich: 2744 clusters, 1700147 points
-// HPDBSCAN 2972 clusters 1463461 noise points, 1234425 core points
-// 43-44 sek, 20, 10, 2972 clusters, pt_in_cls 1536539 noise 1463461
-void clusterBremenSmall(int m, float e, int n_threads) {
-    int d = 3;
-    int n = 3000000;
-    auto *v_points = new float[n*d];
-    struct_label **ps = read_input(const_cast<char *>("../input/bremen_small.csv"), v_points, n, d);
-//    struct_label **ps = read_input(const_cast<char *>("/sdv-work/cdeep/ernir/dbscan/input/bremen_small.csv"), n, d);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
-    ndbscan(ps, v_points, m, e, n, d, is_core, n_threads);
-    std::cout << std::endl << std::flush;
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "ndbscan "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              //<< tot_time
-              << " milliseconds\n";
-    std::cout << std::endl << std::flush;
-    displayOutput(is_core, ps, n);
+int count_lines(const std::string in_file) {
+    std::ifstream is(in_file);
+    std::string line;
+    int cnt = 0;
+    while (std::getline(is, line)) {
+        ++cnt;
+    }
+    return cnt;
 }
 
-void clusterBremen(int m, float e, int n_threads) {
-    int d = 3;
-    int n = 81398810;
-    auto *v_points = new float[n*d];
-//    struct_label **ps = read_input(const_cast<char *>("../input/bremen.csv"), v_points, n, d);
-//    struct_label **ps = read_input(const_cast<char *>("../input/C_25GN1.txt"), v_points, n, d);
-    struct_label **ps = read_input(const_cast<char *>("/sdv-work/cdeep/ernir/dbscan/input/bremen.csv"), v_points, n, d);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
-    ndbscan(ps, v_points, m, e, n, d, is_core, n_threads);
-    std::cout << std::endl << std::flush;
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "ndbscan "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              //<< tot_time
-              << " milliseconds\n";
-    std::cout << std::endl << std::flush;
-    displayOutput(is_core, ps, n);
-}
-
-// 3613730 points in clusters, 5061 clusters, 90.621 noise
-//Number of clusters: 5059, Total points 3704351 pt_in_cls 3613723 noise 90628
-// Erich 5061 clustered points 3613730
-// HPDBSCAN 5060 clusters, 3613734 cluster points, 90617 noise, 3587026 cores
-// Me 90617
-void clusterTwitter(int m, float e, int n_threads) {
-    int d = 2;
-    int n = 3704351;
-    auto *v_points = new float[n*d];
-    struct_label **ps = read_input(const_cast<char *>("../input/twitter_small.csv"), v_points, n, d);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
-    ndbscan(ps, v_points, m, e, n, d, is_core, n_threads);
-    std::cout << std::endl << std::flush;
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "ndbscan "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              //<< tot_time
-              << " milliseconds\n";
-    std::cout << std::endl << std::flush;
-    displayOutput(is_core, ps, n);
-}
-
-void clusterAloi4x4x4(int m, float e, int n_threads) {
-    int d = 65;
-    int n = 110250;
-//    struct_label **ps = read_input(const_cast<char *>("../input/aloi-hsb-2x2x2.csv"), n, d);
-    auto *v_points = new float[n*d];
-    struct_label **ps = read_input(const_cast<char *>("../input/aloi-hsb-4x4x4.csv"), v_points, n, d);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
-    ndbscan(ps, v_points, m, e, n, d, is_core, n_threads);
-    std::cout << std::endl << std::flush;
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "ndbscan "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              //<< tot_time
-              << " milliseconds\n";
-    std::cout << std::endl << std::flush;
-    displayOutput(is_core, ps, n);
-}
-
-void clusterAloi7x7x7(int m, float e, int n_threads) {
-    int d = 344;
-    int n = 110250;
-//    struct_label **ps = read_input(const_cast<char *>("../input/aloi-hsb-2x2x2.csv"), n, d);
-    auto *v_points = new float[n*d];
-    struct_label **ps = read_input(const_cast<char *>("../input/aloi-hsb-7x7x7.csv"), v_points, n, d);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
-    ndbscan(ps, v_points, m, e, n, d, is_core, n_threads);
-    std::cout << std::endl << std::flush;
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "ndbscan "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              //<< tot_time
-              << " milliseconds\n";
-    std::cout << std::endl << std::flush;
-    displayOutput(is_core, ps, n);
-}
-
-void start_nextdbscan() {
-
-}
-
-void clusterAloi(int m, float e, int n_threads) {
-    int max_d = 8;
-    int n = 110250;
+void start_nextdbscan(const int m, const float e, const int max_d, const int n_threads, const std::string in_file) {
+    int n = count_lines(in_file);
+    std::cout << "n: " << n << std::endl;
     auto *v_points = new float[n*max_d];
-//    struct_label **ps = read_input(const_cast<char *>("../input/aloi_sample.csv"), v_points, n, max_d);
-    struct_label **ps = read_input(const_cast<char *>("../input/aloi-hsb-2x2x2.csv"), v_points, n, max_d);
+    struct_label **ps = read_input(in_file, v_points, n, max_d);
 
     auto t1 = std::chrono::high_resolution_clock::now();
     auto *is_core = new bool[n];
@@ -1002,76 +896,92 @@ void clusterAloi(int m, float e, int n_threads) {
     displayOutput(is_core, ps, n);
 }
 
+void usage()
+{
+    std::cout << "Usage: [executable] -m minPoints -e epsilon -d dimensions -t threads [input file]" << std::endl
+              << "    Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
+              << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
+              << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
+              << "    -d dimensions: The number of dimensions to process, required"
+              << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl
+              << "    -h help      : Show this help message" << std::endl
+              << "    Output : A copy of the input data points plus an additional column containing the cluster id, the id 0 denotes noise" << std::endl;
+}
 
 int main(int argc, char* const* argv) {
     char option;
-    int m = -1;
-    float e = -1;
-    int n_threads = -1;
+    int m = UNASSIGNED, max_d = UNASSIGNED;
+    float e = UNASSIGNED;
+    int n_threads = UNASSIGNED;
     int errors = 0;
+    std::string input_file;
 
-    while ((option = getopt(argc, argv, "hm:e:o:t:")) != -1) {
+    while ((option = getopt(argc, argv, "hm:e:o:t:d:")) != -1) {
         switch (option) {
             case 'm': {
                 ssize_t minPoints = std::stoll(optarg);
                 if (minPoints <= 0L) {
-//                    parameters.minPoints = 1L;
-                    std::cerr << "minPoints needs to be a positive integer number, but was " << optarg << std::endl;
+                    std::cerr << "minPoints must be a positive integer number, but was " << optarg << std::endl;
                     ++errors;
-                }
-                else
-                {
+                } else {
                     m = (size_t) minPoints;
                 }
                 break;
             }
-            case 'e':
-            {
+            case 'd': {
+                ssize_t d = std::stoll(optarg);
+                if (d <= 0L) {
+                    std::cerr << "max dim must be a positive integer number, but was " << optarg << std::endl;
+                } else {
+                    max_d = d;
+                }
+                break;
+            }
+            case 'e': {
                 float epsilon = std::stof(optarg);
-                if (epsilon <= 0.0f)
-                {
-//                    parameters.epsilon = 1.0f;
-                    std::cerr << "epsilon needs to be a positive floating struct_label number, but was " << optarg << std::endl;
+                if (epsilon <= 0.0f) {
+                    std::cerr << "epsilon must be a positive floating struct_label number, but was " << optarg << std::endl;
                     ++errors;
                 }
-                else
-                {
+                else {
                     e = epsilon;
                 }
                 break;
             }
-            case 't':
-            {
+            case 't': {
                 ssize_t threads = std::stoll(optarg);
-                if (threads <= 0L)
-                {
-//                    parameters.threads = 1L;
-                    std::cerr << "thread count needs to be a positive integer number, but was " << optarg << std::endl;
+                if (threads <= 0L) {
+                    std::cerr << "thread count must be a positive integer number, but was " << optarg << std::endl;
                     ++errors;
-                }
-                else
-                {
+                } else {
                     n_threads = (size_t) threads;
                 }
                 break;
             }
         }
     }
-    if (errors)
-    {
-        std::cerr << "INPUT ERROR" << std::endl;
-//        usage(argv[0]);
+    if (argc - optind <= 0) {
+        input_file = "../input/aloi-hsb-2x2x2.csv";
+    }
+    else if (argc - optind > 1) {
+        std::cerr << "Please provide only one data file" << std::endl;
+        ++errors;
+    }
+    else {
+        input_file = argv[optind];
+    }
+    if (errors) {
+        std::cout << "Input Error!" << std::endl;
+        usage();
         std::exit(EXIT_FAILURE);
     }
     if (n_threads > 1 && n_threads % 2 == 1) {
-        std::cerr << "The number of threads must be 1, or an even number and a multiple of 2." << std::endl;
+        std::cerr << "The number of threads must be a multiple of 2 (2^0 also allowed)." << std::endl;
         std::exit(EXIT_FAILURE);
+    } else if (n_threads == UNASSIGNED) {
+        n_threads = 1;
     }
-    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: " << n_threads << std::endl;
-//    clusterAloi(20, 0.01, 8);
-//    clusterAloi7x7x7(20, 0.02, 8);
-//    clusterAloi4x4x4(20, 0.01, 1);
-    clusterBremen(m, e, n_threads);
-//    clusterBremen(35, 25, 8);
-//    clusterBremenSmall(30, 20, 8);
+    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
+        << n_threads << " file:" << input_file << std::endl;
+    start_nextdbscan(m, e, max_d, n_threads, input_file);
 }
