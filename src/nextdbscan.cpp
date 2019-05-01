@@ -955,13 +955,12 @@ void displayOutput(const s_vector<uint8_t> &is_core, s_vector<struct_label> &ps,
     }
     std::cout << "Confirmed core count: " << n_cores << " / " << n << std::endl;
 
-    auto* labels = new bool[n];
-    std::fill(labels, labels + n, false);
+    s_vector<uint8_t> labels(n, 0);
     #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         int label = get_label(&ps[i])->label;
         if (label != UNASSIGNED) {
-            labels[label] = true;
+            labels[label] = 1;
         }
     }
     int cnt = 0;
@@ -980,8 +979,6 @@ void displayOutput(const s_vector<uint8_t> &is_core, s_vector<struct_label> &ps,
         }
     }
     std::cout << "Noise points: " << p_noise << std::endl;
-
-    delete [] labels;
 }
 
 int count_lines(const std::string &in_file) {
