@@ -947,26 +947,24 @@ void displayOutput(const bool *is_core, struct_label** ps, int n) {
     }
     std::cout << "Confirmed core count: " << n_cores << " / " << n << std::endl;
 
-    int cnt = 0;
     auto* labels = new bool[n];
     std::fill(labels, labels + n, false);
-    #pragma omp for
+    #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         labels[get_label(ps[i])->label] = true;
     }
-    #pragma omp for
+    int cnt = 0;
+    #pragma omp parallel for reduction(+: cnt)
     for (int i = 0; i < n; i++) {
         if (labels[i]) {
-            #pragma omp atomic
             ++cnt;
         }
     }
     std::cout << "Estimated clusters: " << cnt << std::endl;
     int p_noise = 0;
-    #pragma omp for
+    #pragma omp parallel for reduction(+: p_noise)
     for (int i = 0; i < n; i++) {
         if (get_label(ps[i])->label == UNASSIGNED) {
-            #pragma omp atomic
             p_noise++;
         }
     }
