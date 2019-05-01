@@ -259,13 +259,13 @@ void process_ac_ac(struct_label **p_labels, float *v_coords, const uint *v_c1_in
     }
 }
 
-void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool *cell_has_cores, const s_vector<uint> &v_cell_ns,
-        const uint *v_cell_np, const s_vector<uint> &v_point_nps, bool *is_core, const uint c1_id, const uint m) {
+void process_new_core_cell(struct_label **ps, uint **cell_indexes, s_vector<uint8_t> &cell_has_cores, const s_vector<uint> &v_cell_ns,
+        const s_vector<uint> &v_cell_np, const s_vector<uint> &v_point_nps, bool *is_core, const uint c1_id, const uint m) {
     uint size = v_cell_ns[c1_id];
     for (uint i = 0; i < size; i++) {
         uint p1_id = cell_indexes[c1_id][i];
         if (!is_core[p1_id] && (v_cell_np[c1_id] + v_point_nps[p1_id]) >= m) {
-            cell_has_cores[c1_id] = true;
+            cell_has_cores[c1_id] = 1;
             is_core[p1_id] = true;
             auto *p1_label = get_label(ps[cell_indexes[c1_id][i]]);
             if (p1_label->label == UNASSIGNED) {
@@ -277,7 +277,7 @@ void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool *cell_ha
 }
 
 void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const s_vector<uint> &v_cell_ns,
-        s_vector<uint8_t> &range_table, const bool *cell_has_cores,const bool *is_core, const uint c1_id, const uint c2_id,
+        s_vector<uint8_t> &range_table, const s_vector<uint8_t> &cell_has_cores, const bool *is_core, const uint c1_id, const uint c2_id,
         const uint max_d, const float e2) {
     int size1 = v_cell_ns[c1_id];
     int size2 = v_cell_ns[c2_id];
@@ -310,8 +310,8 @@ void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **ce
 }
 
 void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const s_vector<uint> &v_cell_ns,
-        s_vector<uint8_t> &range_table, bool *cell_has_cores, bool *is_core, const s_vector<uint8_t> &is_border_cell, 
-        s_vector<uint> &v_point_nps, uint* v_cell_np, const uint c1_id, const uint c2_id, const uint max_d, 
+        s_vector<uint8_t> &range_table, s_vector<uint8_t> &cell_has_cores, bool *is_core, const s_vector<uint8_t> &is_border_cell, 
+        s_vector<uint> &v_point_nps, s_vector<uint> &v_cell_np, const uint c1_id, const uint c2_id, const uint max_d, 
         const float e2, const uint m) {
     uint size1 = v_cell_ns[c1_id];
     uint size2 = v_cell_ns[c2_id];
@@ -423,12 +423,10 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
         uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels, uint n_threads,
         uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
     uint max_points_in_cell = 0;
-    auto *v_cell_nps = new uint[v_no_of_cells[0]];
+    s_vector<uint> v_cell_nps(v_no_of_cells[0]);
     d_vector<uint8_t> range_table(n_threads);
     s_vector<uint> v_point_nps(n, 0);
-
-    bool *cell_has_cores = new bool[v_no_of_cells[0]];
-    std::fill(cell_has_cores, cell_has_cores + v_no_of_cells[0], false);
+    s_vector<uint8_t> cell_has_cores(v_no_of_cells[0], 0);
 
     #pragma omp parallel for reduction(max: max_points_in_cell)
     for (uint i = 0; i < v_no_of_cells[0]; i++) {
@@ -437,7 +435,7 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
             max_points_in_cell = v_cell_nps[i];
         }
         if (v_cell_nps[i] >= m) {
-            cell_has_cores[i] = true;
+            cell_has_cores[i] = 1;
             ps_origin[cell_indexes[0][i][0]]->label = i;
             for (uint j = 0; j < v_cell_nps[i]; j++) {
                 is_core[cell_indexes[0][i][j]] = true;
