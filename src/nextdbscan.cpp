@@ -420,7 +420,7 @@ void calculate_cell_boundaries_omp(float *v_coords, uint ***cell_indexes, d_vect
 void process_cell_tree_omp(s_vector<struct_label> &ps_origin, float *v_coords, uint ***cell_indexes, 
         const d_vector<uint> &cell_ns, float **cell_dims_min,float **cell_dims_max, 
         const s_vector<uint> &v_no_of_cells, bool *is_core, const s_vector<uint8_t> &is_border_cell, 
-        uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels, uint n_threads,
+        d_vector<uint> &s_c1_indexes, d_vector<uint> &s_c2_indexes, d_vector<uint> &s_levels, uint n_threads,
         uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
     uint max_points_in_cell = 0;
     s_vector<uint> v_cell_nps(v_no_of_cells[0]);
@@ -540,7 +540,7 @@ void process_cell_tree_omp(s_vector<struct_label> &ps_origin, float *v_coords, u
 
 void detect_border_cells(uint ***cell_indexes, d_vector<uint> &cell_ns, float **cell_dims_min, 
         float **cell_dims_max, s_vector<uint8_t> &border_cells, const s_vector<uint> &v_no_of_cells, 
-        uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels,
+        d_vector<uint> &s_c1_indexes, d_vector<uint> &s_c2_indexes, d_vector<uint> &s_levels,
         const uint max_levels, const uint max_d, const uint m, const float e) {
     s_vector<uint> v_cell_nps(v_no_of_cells[0]);
     std::copy_n(cell_ns[0].begin(), v_no_of_cells[0], std::back_inserter(v_cell_nps));
@@ -873,9 +873,9 @@ void nextDBSCAN(s_vector<struct_label> &p_labels, float *v_coords, const uint m,
     s_vector<uint> v_no_of_cells(max_levels, 0);
     
     // stacks
-    auto** s_levels = new uint*[n_threads];
-    auto** s_c1_indexes = new uint*[n_threads];
-    auto** s_c2_indexes = new uint*[n_threads];
+    d_vector<uint> s_levels(n_threads);
+    d_vector<uint> s_c1_indexes(n_threads);
+    d_vector<uint> s_c2_indexes(n_threads);
 
     allocate_resources(v_eps_levels, dims_mult, min_bounds, max_bounds, max_levels, max_d, e_inner);
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -892,10 +892,9 @@ void nextDBSCAN(s_vector<struct_label> &p_labels, float *v_coords, const uint m,
               << " milliseconds\n";
 
     for (uint i = 0; i < n_threads; i++) {
-        // TODO use vectors instead of hard coded heuristic
-        s_levels[i] = new uint[v_no_of_cells[0]*10];
-        s_c1_indexes[i] = new uint[v_no_of_cells[0]*10];
-        s_c2_indexes[i] = new uint[v_no_of_cells[0]*10];
+        s_levels[i].resize(v_no_of_cells[0]*10);
+        s_c1_indexes[i].resize(v_no_of_cells[0]*10);
+        s_c2_indexes[i].resize(v_no_of_cells[0]*10);
     }
     t1 = std::chrono::high_resolution_clock::now();
     calculate_cell_boundaries_omp(v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
