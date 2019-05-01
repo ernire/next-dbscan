@@ -36,6 +36,7 @@ SOFTWARE.
 #include <omp.h>
 #include <getopt.h>
 
+static const int TRUE = 1;
 static const int UNASSIGNED = -1;
 typedef unsigned long long ull;
 typedef unsigned int uint;
@@ -266,8 +267,8 @@ void process_new_core_cell(s_vector<struct_label> &ps, uint **cell_indexes, s_ve
     for (uint i = 0; i < size; i++) {
         uint p1_id = cell_indexes[c1_id][i];
         if (!is_core[p1_id] && (v_cell_np[c1_id] + v_point_nps[p1_id]) >= m) {
-            cell_has_cores[c1_id] = 1;
-            is_core[p1_id] = 1;
+            cell_has_cores[c1_id] = TRUE;
+            is_core[p1_id] = TRUE;
             auto *p1_label = get_label(&ps[cell_indexes[c1_id][i]]);
             if (p1_label->label == UNASSIGNED) {
                 p1_label->label = c1_id;
@@ -436,10 +437,10 @@ void process_cell_tree_omp(s_vector<struct_label> &ps_origin, float *v_coords, u
             max_points_in_cell = v_cell_nps[i];
         }
         if (v_cell_nps[i] >= m) {
-            cell_has_cores[i] = 1;
+            cell_has_cores[i] = TRUE;
             ps_origin[cell_indexes[0][i][0]].label = i;
             for (uint j = 0; j < v_cell_nps[i]; j++) {
-                is_core[cell_indexes[0][i][j]] = 1;
+                is_core[cell_indexes[0][i][j]] = TRUE;
                 if (j > 0) {
                     ps_origin[cell_indexes[0][i][j]].label_p = &ps_origin[cell_indexes[0][i][0]];
                 }
@@ -590,7 +591,7 @@ void detect_border_cells(uint ***cell_indexes, d_vector<uint> &cell_ns, float **
     #pragma omp parallel for schedule(static)
     for (uint i = 0; i < v_no_of_cells[0]; i++) {
         if (v_cell_nps[i] < m) {
-            border_cells[i] = 1;
+            border_cells[i] = TRUE;
         }
     }
 }
@@ -1097,7 +1098,5 @@ int main(int argc, char* const* argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    for(size_t i = 0; i < 100; i++) {
-        start_nextdbscan(m, e, max_d, n_threads, input_file);
-    }
+    start_nextdbscan(m, e, max_d, n_threads, input_file);
 }
