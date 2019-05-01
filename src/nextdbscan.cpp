@@ -159,7 +159,7 @@ void process_new_core_point(struct_label **p_labels, uint **cell_indexes, struct
     }
 }
 
-void process_point_labels_in_range(struct_label **p_labels, uint **cell_indexes, const bool *range_table,
+void process_point_labels_in_range(struct_label **p_labels, uint **cell_indexes, const s_vector<uint8_t> &range_table,
         const s_vector<uint> &v_cell_ns, const bool *is_core, const uint c1_id, const uint c2_id) noexcept {
     int size1 = v_cell_ns[c1_id];
     int size2 = v_cell_ns[c2_id];
@@ -195,7 +195,8 @@ void process_point_labels_in_range(struct_label **p_labels, uint **cell_indexes,
     }
 }
 
-void apply_marked_in_range(uint **cell_indexes, const bool *range_table, s_vector<uint> &v_point_nps, const s_vector<uint> &v_cell_ns,
+void apply_marked_in_range(uint **cell_indexes, const s_vector<uint8_t> &range_table, s_vector<uint> &v_point_nps, 
+        const s_vector<uint> &v_cell_ns,
         const bool *is_core, const s_vector<uint8_t> &is_border_cell, const uint c1_id, const uint c2_id) {
     uint size1 = v_cell_ns[c1_id];
     uint size2 = v_cell_ns[c2_id];
@@ -227,15 +228,15 @@ void apply_marked_in_range(uint **cell_indexes, const bool *range_table, s_vecto
 }
 
 int mark_in_range(const float *v_coords, const uint *v_c1_index, const uint size1, const uint *v_c2_index,
-        const uint size2, bool *range_table, const uint max_d, const float e2) {
-    std::fill(range_table, range_table + (size1 * size2), false);
+        const uint size2, s_vector<uint8_t> &range_table, const uint max_d, const float e2) {
+    std::fill_n(range_table.begin(), size1 * size2, 0);
     uint cnt_range = 0;
     uint index = 0;
     for (uint i = 0; i < size1; i++) {
         for (uint j = 0; j < size2; j++, index++) {
             if (dist_leq(&v_coords[v_c1_index[i]*max_d], &v_coords[v_c2_index[j]*max_d], max_d, e2)) {
                 ++cnt_range;
-                range_table[index] = true;
+                range_table[index] = 1;
             }
         }
     }
@@ -276,7 +277,7 @@ void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool *cell_ha
 }
 
 void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const s_vector<uint> &v_cell_ns,
-        bool *range_table, const bool *cell_has_cores,const bool *is_core, const uint c1_id, const uint c2_id,
+        s_vector<uint8_t> &range_table, const bool *cell_has_cores,const bool *is_core, const uint c1_id, const uint c2_id,
         const uint max_d, const float e2) {
     int size1 = v_cell_ns[c1_id];
     int size2 = v_cell_ns[c2_id];
@@ -309,7 +310,7 @@ void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **ce
 }
 
 void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const s_vector<uint> &v_cell_ns,
-        bool *range_table, bool *cell_has_cores, bool *is_core, const s_vector<uint8_t> &is_border_cell, 
+        s_vector<uint8_t> &range_table, bool *cell_has_cores, bool *is_core, const s_vector<uint8_t> &is_border_cell, 
         s_vector<uint> &v_point_nps, uint* v_cell_np, const uint c1_id, const uint c2_id, const uint max_d, 
         const float e2, const uint m) {
     uint size1 = v_cell_ns[c1_id];
@@ -423,7 +424,7 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
         uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
     uint max_points_in_cell = 0;
     auto *v_cell_nps = new uint[v_no_of_cells[0]];
-    auto **range_table = new bool*[n_threads];
+    d_vector<uint8_t> range_table(n_threads);
     s_vector<uint> v_point_nps(n, 0);
 
     bool *cell_has_cores = new bool[v_no_of_cells[0]];
@@ -447,7 +448,7 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
         }
     }
     for (uint i = 0; i < n_threads; i++) {
-        range_table[i] = new bool[max_points_in_cell*std::min(max_points_in_cell, m)];
+        range_table[i].resize(max_points_in_cell * std::min(max_points_in_cell, m));
     }
     for (uint level = 1; level < max_levels; level++) {
         #pragma omp parallel for schedule(dynamic)
