@@ -1101,7 +1101,5 @@ int main(int argc, char* const* argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    for(size_t i = 0; i < 100; i++) {
-        start_nextdbscan(m, e, max_d, n_threads, input_file);
-    }
+    start_nextdbscan(m, e, max_d, n_threads, input_file);
 }
