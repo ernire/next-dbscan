@@ -1,5 +1,5 @@
 CC=g++
-CCFLAGS=-fopenmp -std=c++14
+CCFLAGS=-fopenmp -std=c++14 -fno-exceptions
 CCDEBUG=-O1 -pg -g
 CCRUN=-O3
 
