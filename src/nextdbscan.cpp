@@ -36,7 +36,6 @@ SOFTWARE.
 #include <omp.h>
 #include <getopt.h>
 
-static const int TRUE = 1;
 static const int UNASSIGNED = -1;
 typedef unsigned long long ull;
 typedef unsigned int uint;
@@ -267,8 +266,8 @@ void process_new_core_cell(s_vector<struct_label> &ps, uint **cell_indexes, s_ve
     for (uint i = 0; i < size; i++) {
         uint p1_id = cell_indexes[c1_id][i];
         if (!is_core[p1_id] && (v_cell_np[c1_id] + v_point_nps[p1_id]) >= m) {
-            cell_has_cores[c1_id] = TRUE;
-            is_core[p1_id] = TRUE;
+            cell_has_cores[c1_id] = 1;
+            is_core[p1_id] = 1;
             auto *p1_label = get_label(&ps[cell_indexes[c1_id][i]]);
             if (p1_label->label == UNASSIGNED) {
                 p1_label->label = c1_id;
@@ -437,10 +436,10 @@ void process_cell_tree_omp(s_vector<struct_label> &ps_origin, float *v_coords, u
             max_points_in_cell = v_cell_nps[i];
         }
         if (v_cell_nps[i] >= m) {
-            cell_has_cores[i] = TRUE;
+            cell_has_cores[i] = 1;
             ps_origin[cell_indexes[0][i][0]].label = i;
             for (uint j = 0; j < v_cell_nps[i]; j++) {
-                is_core[cell_indexes[0][i][j]] = TRUE;
+                is_core[cell_indexes[0][i][j]] = 1;
                 if (j > 0) {
                     ps_origin[cell_indexes[0][i][j]].label_p = &ps_origin[cell_indexes[0][i][0]];
                 }
@@ -545,9 +544,7 @@ void detect_border_cells(uint ***cell_indexes, d_vector<uint> &cell_ns, float **
         d_vector<uint> &s_c1_indexes, d_vector<uint> &s_c2_indexes, d_vector<uint> &s_levels,
         const uint max_levels, const uint max_d, const uint m, const float e) {
     s_vector<uint> v_cell_nps(v_no_of_cells[0]);
-//    std::copy(cell_ns[0].beg, &cell_ns[0] + v_no_of_cells[0], v_cell_nps);
     std::copy_n(cell_ns[0].begin(), v_no_of_cells[0], std::back_inserter(v_cell_nps));
-//    std::copy(cell_ns[0].begin(), cell_ns[0].end(), std::back_inserter(v_cell_nps));
     for (uint level = 1; level < max_levels; level++) {
         #pragma omp parallel for
         for (uint i = 0; i < v_no_of_cells[level]; i++) {
@@ -593,7 +590,7 @@ void detect_border_cells(uint ***cell_indexes, d_vector<uint> &cell_ns, float **
     #pragma omp parallel for schedule(static)
     for (uint i = 0; i < v_no_of_cells[0]; i++) {
         if (v_cell_nps[i] < m) {
-            border_cells[i] = TRUE;
+            border_cells[i] = 1;
         }
     }
 }
@@ -850,13 +847,15 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
 
 void nextDBSCAN(s_vector<struct_label> &p_labels, float *v_coords, const uint m, const float e, const uint n,
         const uint max_d, s_vector<uint8_t> &is_core, uint n_threads) {
-    auto t1 = std::chrono::high_resolution_clock::now();
     s_vector<float> min_bounds;
     min_bounds.resize(max_d);
+
     s_vector<float> max_bounds;
     max_bounds.resize(max_d);
+    
     float max_limit = INT32_MIN;
     omp_set_num_threads(n_threads);
+    auto t1 = std::chrono::high_resolution_clock::now();
     float e2 = e * e;
     float e_inner = (e / sqrt(2)) / 2;
 
@@ -892,12 +891,13 @@ void nextDBSCAN(s_vector<struct_label> &p_labels, float *v_coords, const uint m,
     std::cout << "Point indexing: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
               << " milliseconds\n";
-    t1 = std::chrono::high_resolution_clock::now();
+
     for (uint i = 0; i < n_threads; i++) {
         s_levels[i].resize(v_no_of_cells[0]*10);
         s_c1_indexes[i].resize(v_no_of_cells[0]*10);
         s_c2_indexes[i].resize(v_no_of_cells[0]*10);
     }
+    t1 = std::chrono::high_resolution_clock::now();
     calculate_cell_boundaries_omp(v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
                                   max_levels, max_d);
     t2 = std::chrono::high_resolution_clock::now();
@@ -959,10 +959,7 @@ void displayOutput(const s_vector<uint8_t> &is_core, s_vector<struct_label> &ps,
     std::fill(labels, labels + n, false);
     #pragma omp parallel for
     for (int i = 0; i < n; i++) {
-        int label = get_label(&ps[i])->label;
-        if (label != UNASSIGNED) {
-            labels[label] = true;
-        }
+        labels[get_label(&ps[i])->label] = true;
     }
     int cnt = 0;
     #pragma omp parallel for reduction(+: cnt)
@@ -980,8 +977,6 @@ void displayOutput(const s_vector<uint8_t> &is_core, s_vector<struct_label> &ps,
         }
     }
     std::cout << "Noise points: " << p_noise << std::endl;
-
-    delete [] labels;
 }
 
 int count_lines(const std::string &in_file) {
@@ -1000,11 +995,11 @@ void start_nextdbscan(const uint m, const float e, const uint max_d, const uint 
     auto *v_points = new float[n*max_d];
     read_input(in_file, v_points, max_d);
     s_vector<struct_label> point_labels(n);
-    s_vector<uint8_t> is_core(n, false);
     auto t1 = std::chrono::high_resolution_clock::now();
+    s_vector<uint8_t> is_core(n, false);
     nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
-    auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << std::endl << std::flush;
+    auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "NextDBSCAN runtime took: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
               << " milliseconds\n";
@@ -1102,5 +1097,7 @@ int main(int argc, char* const* argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    start_nextdbscan(30, 20, 3, 8, "../input/bremen_small.csv");
+    for(size_t i = 0; i < 100; i++) {
+        start_nextdbscan(m, e, max_d, n_threads, input_file);
+    }
 }
