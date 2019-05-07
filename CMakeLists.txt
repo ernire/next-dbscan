@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -Wextra -O3 -fopenmp -fno-exceptions")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
 
-add_executable(odbscan src/nextdbscan.cpp)
+add_executable(ndbscan src/nextdbscan.cpp)
 
-add_executable(odbscan_tests src/nextdbscan_test.cpp)
-target_link_libraries(odbscan_tests ${GTEST_BOTH_LIBRARIES})
+add_executable(ndbscan_tests src/nextdbscan_test.cpp)
+target_link_libraries(ndbscan_tests ${GTEST_BOTH_LIBRARIES})

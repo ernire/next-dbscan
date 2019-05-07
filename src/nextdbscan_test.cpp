@@ -42,6 +42,8 @@ static const int UNASSIGNED = -1;
 typedef unsigned long long ull;
 typedef unsigned int uint;
 
+static bool g_quiet = false;
+
 class struct_label {
 public:
     int label;
@@ -875,17 +877,21 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
 
     allocate_resources(v_eps_levels, dims_mult, min_bounds, max_bounds, max_levels, max_d, e_inner);
     auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Memory and init: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+    if (!g_quiet) {
+        std::cout << "Memory and init: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 
     t1 = std::chrono::high_resolution_clock::now();
     index_points_to_cells_omp_median_merge(v_coords, cell_indexes, cell_ns, min_bounds, dims_mult, v_eps_levels,
             v_no_of_cells,max_levels, max_d, n, n_threads);
     t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Point indexing: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+    if (!g_quiet) {
+        std::cout << "Point indexing: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 
     for (uint l = 0; l < max_levels; l++) {
         delete [] dims_mult[l];
@@ -901,27 +907,33 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
     calculate_cell_boundaries_omp(v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
                                   max_levels, max_d);
     t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Cell boundaries: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+    if (!g_quiet) {
+        std::cout << "Cell boundaries: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 
     t1 = std::chrono::high_resolution_clock::now();
     std::vector<uint8_t> border_cells(v_no_of_cells[0], 0);
     detect_border_cells(cell_indexes, cell_ns, cell_dims_min, cell_dims_max, border_cells, v_no_of_cells,
             s_c1_indexes, s_c2_indexes, s_levels, max_levels, max_d, m, e);
     t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Border/noise cell detection: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+    if (!g_quiet) {
+        std::cout << "Border/noise cell detection: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 
     t1 = std::chrono::high_resolution_clock::now();
     process_cell_tree_omp(p_labels, v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
                             is_core, border_cells, s_c1_indexes, s_c2_indexes,
                             s_levels, n_threads, max_levels, max_d, e, e2, m, n);
     t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Process cell tree: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+    if (!g_quiet) {
+        std::cout << "Process cell tree: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 }
 
 void read_input(const std::string &in_file, float *v_points, int max_d) {
@@ -939,12 +951,15 @@ void read_input(const std::string &in_file, float *v_points, int max_d) {
             v_points[index++] = atof(buf.c_str());
         }
     }
-    std::cout << std::endl;
     is.close();
     auto t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Read input took: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-              << " milliseconds\n";
+
+    if (!g_quiet) {
+        std::cout << std::endl;
+        std::cout << "Read input took: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
 }
 
 scan_result calculate_output(const bool *is_core, struct_label** ps, int n) {
@@ -985,40 +1000,6 @@ scan_result calculate_output(const bool *is_core, struct_label** ps, int n) {
     delete [] labels;
 
     return result;
-}
-
-void displayOutput(const bool *is_core, struct_label** ps, int n) {
-    int n_cores = 0;
-    for (int i = 0; i < n; i++) {
-        if (is_core[i])
-            ++n_cores;
-    }
-    std::cout << "Confirmed core count: " << n_cores << " / " << n << std::endl;
-
-    auto* labels = new bool[n];
-    std::fill(labels, labels + n, false);
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        if (get_label(ps[i])->label != UNASSIGNED) {
-            labels[get_label(ps[i])->label] = true;
-        }
-    }
-    int cnt = 0;
-    #pragma omp parallel for reduction(+: cnt)
-    for (int i = 0; i < n; i++) {
-        if (labels[i]) {
-            ++cnt;
-        }
-    }
-    std::cout << "Estimated clusters: " << cnt << std::endl;
-    int p_noise = 0;
-    #pragma omp parallel for reduction(+: p_noise)
-    for (int i = 0; i < n; i++) {
-        if (get_label(ps[i])->label == UNASSIGNED) {
-            p_noise++;
-        }
-    }
-    std::cout << "Noise points: " << p_noise << std::endl;
 }
 
 int count_lines(const std::string &in_file) {
@@ -1079,7 +1060,36 @@ TEST(ScanAccuracyAloiHsb2x2x2, m20_e001_d4_t2) {
     EXPECT_EQ(result.noise, 27284);
 }
 
+TEST(ScanAccuracyBremenSmall, m30_e20_d3_t2) {
+    scan_result result = start_nextdbscan(30, 20, 3, 2, "../input/bremenSmall.csv");
+    EXPECT_EQ(result.clusters, 2972);
+    EXPECT_EQ(result.core_count, 1234425);
+    EXPECT_EQ(result.noise, 1463461);
+}
+
+TEST(ScanAccuracyBremenSmall, m30_e10_d3_t2) {
+    scan_result result = start_nextdbscan(30, 10, 3, 2, "../input/bremenSmall.csv");
+    EXPECT_EQ(result.clusters, 1202);
+    EXPECT_EQ(result.core_count, 263100);
+    EXPECT_EQ(result.noise, 2641881);
+}
+
+TEST(ScanAccuracyBremenSmall, m10_e20_d3_t2) {
+    scan_result result = start_nextdbscan(10, 20, 3, 2, "../input/bremenSmall.csv");
+    EXPECT_EQ(result.clusters, 10712);
+    EXPECT_EQ(result.core_count, 2286646);
+    EXPECT_EQ(result.noise, 482406);
+}
+
+TEST(ScanAccuracyBremenSmall, m100_e30_d3_t2) {
+    scan_result result = start_nextdbscan(100, 30, 3, 2, "../input/bremenSmall.csv");
+    EXPECT_EQ(result.clusters, 480);
+    EXPECT_EQ(result.core_count, 839729);
+    EXPECT_EQ(result.noise, 1906449);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    g_quiet = true;
     return RUN_ALL_TESTS();
 }
