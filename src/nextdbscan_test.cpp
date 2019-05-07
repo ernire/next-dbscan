@@ -675,7 +675,7 @@ void fill_medians(std::vector<std::pair<ull, uint>>::const_iterator begin,
 }
 
 void index_cells_omp_merge(const uint no_of_cells, std::vector<std::pair<ull, uint>> *vec_index_maps,
-        std::vector<std::pair<ull, uint>> *vec_buckets, std::vector<uint> *vec_cell_begin, ull *medians,
+        std::vector<std::pair<ull, uint>> *vec_buckets, std::vector<uint> *vec_cell_begin, std::vector<ull> &medians,
         ull *median_buckets, uint ***cell_indexes, uint **cell_ns, float *v_coords, 
         const std::vector<float>& min_bounds, ull **dims_mult, const std::vector<float> &v_eps_levels, 
         std::vector<uint> &v_no_of_cells, ull *selected_medians, const uint max_d, const uint l, const uint n_threads) {
@@ -809,7 +809,7 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
         vec_cell_begin[i].reserve(n / ((n_threads - 1) + 1));
     }
     uint no_of_cells;
-    auto *medians = new ull[n_threads*n_threads];
+    std::vector<ull> medians(n_threads*n_threads);
     auto *median_buckets = new ull[n_threads*n_threads];
     auto *selected_medians = new ull[n_threads];
     for (int l = 0; l < max_levels; l++) {
@@ -837,7 +837,6 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
     delete [] vec_buckets;
     delete [] vec_index_maps;
     delete [] vec_cell_begin;
-    delete [] medians;
     delete [] median_buckets;
     delete [] selected_medians;
 }
