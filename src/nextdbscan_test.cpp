@@ -541,8 +541,8 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
 void detect_border_cells(uint ***cell_indexes, uint **cell_ns, float **cell_dims_min, float **cell_dims_max,
         std::vector<uint8_t> &border_cells, const std::vector<uint> &v_no_of_cells, uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels,
         const uint max_levels, const uint max_d, const uint m, const float e) {
-    auto *v_cell_nps = new uint[v_no_of_cells[0]];
-    std::copy(cell_ns[0], cell_ns[0] + v_no_of_cells[0], v_cell_nps);
+    std::vector<uint> v_cell_nps(v_no_of_cells[0]);
+    std::copy(cell_ns[0], cell_ns[0] + v_no_of_cells[0], v_cell_nps.data());
     for (uint level = 1; level < max_levels; level++) {
         #pragma omp parallel for
         for (uint i = 0; i < v_no_of_cells[level]; i++) {
@@ -591,7 +591,6 @@ void detect_border_cells(uint ***cell_indexes, uint **cell_ns, float **cell_dims
             border_cells[i] = 1;
         }
     }
-    delete [] v_cell_nps;
 }
 
 void index_cells_omp_simple(const uint no_of_cells, std::vector<std::pair<ull, uint>> *vec_index_maps,
