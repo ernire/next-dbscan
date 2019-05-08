@@ -260,11 +260,11 @@ void process_ac_ac(struct_label **p_labels, float *v_coords, const uint *v_c1_in
 }
 
 void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool *cell_has_cores, const uint *v_cell_ns,
-        const uint *v_cell_np, const std::vector<uint> &v_point_nps, bool *is_core, const uint c1_id, const uint m) {
+        const std::vector<uint> &v_cell_nps, const std::vector<uint> &v_point_nps, bool *is_core, const uint c1_id, const uint m) {
     uint size = v_cell_ns[c1_id];
     for (uint i = 0; i < size; i++) {
         uint p1_id = cell_indexes[c1_id][i];
-        if (!is_core[p1_id] && (v_cell_np[c1_id] + v_point_nps[p1_id]) >= m) {
+        if (!is_core[p1_id] && (v_cell_nps[c1_id] + v_point_nps[p1_id]) >= m) {
             cell_has_cores[c1_id] = true;
             is_core[p1_id] = true;
             auto *p1_label = get_label(ps[cell_indexes[c1_id][i]]);
@@ -311,7 +311,7 @@ void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **ce
 
 void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const uint *v_cell_ns,
         bool *range_table, bool *cell_has_cores, bool *is_core, const std::vector<uint8_t> &is_border_cell, 
-        std::vector<uint> &v_point_nps, uint* v_cell_np, const uint c1_id, const uint c2_id, const uint max_d, 
+        std::vector<uint> &v_point_nps, std::vector<uint> &v_cell_nps, const uint c1_id, const uint c2_id, const uint max_d, 
         const float e2, const uint m) {
     uint size1 = v_cell_ns[c1_id];
     uint size2 = v_cell_ns[c2_id];
@@ -322,24 +322,24 @@ void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_i
     }
     if (cnt_range == size1 * size2) {
         if (cell_has_cores[c1_id] && cell_has_cores[c2_id]) {
-            v_cell_np[c1_id] += size2;
-            v_cell_np[c2_id] += size1;
+            v_cell_nps[c1_id] += size2;
+            v_cell_nps[c2_id] += size1;
         } else if (cell_has_cores[c1_id]) {
-            v_cell_np[c1_id] += size2;
+            v_cell_nps[c1_id] += size2;
             if (!is_border_cell[c2_id]) {
-                v_cell_np[c2_id] += size1;
+                v_cell_nps[c2_id] += size1;
             }
         } else if (cell_has_cores[c2_id]) {
-            v_cell_np[c2_id] += size1;
+            v_cell_nps[c2_id] += size1;
             if (!is_border_cell[c1_id]) {
-                v_cell_np[c1_id] += size2;
+                v_cell_nps[c1_id] += size2;
             }
         } else {
             if (!is_border_cell[c1_id]) {
-                v_cell_np[c1_id] += size2;
+                v_cell_nps[c1_id] += size2;
             }
             if (!is_border_cell[c2_id]) {
-                v_cell_np[c2_id] += size1;
+                v_cell_nps[c2_id] += size1;
             }
         }
     } else {
@@ -349,10 +349,10 @@ void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_i
         }
     }
     if (!is_border_cell[c1_id]) {
-        process_new_core_cell(p_labels, cell_indexes, cell_has_cores, v_cell_ns, v_cell_np, v_point_nps, is_core, c1_id, m);
+        process_new_core_cell(p_labels, cell_indexes, cell_has_cores, v_cell_ns, v_cell_nps, v_point_nps, is_core, c1_id, m);
     }
     if (!is_border_cell[c2_id]) {
-        process_new_core_cell(p_labels, cell_indexes, cell_has_cores, v_cell_ns, v_cell_np, v_point_nps, is_core, c2_id, m);
+        process_new_core_cell(p_labels, cell_indexes, cell_has_cores, v_cell_ns, v_cell_nps, v_point_nps, is_core, c2_id, m);
     }
 }
 
@@ -421,7 +421,7 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
         const std::vector<uint8_t> &is_border_cell, uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels, uint n_threads,
         uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
     uint max_points_in_cell = 0;
-    auto *v_cell_nps = new uint[v_no_of_cells[0]];
+    std::vector<uint> v_cell_nps(v_no_of_cells[0]);
     auto **range_table = new bool*[n_threads];
     std::vector<uint> v_point_nps(n, 0);
 
