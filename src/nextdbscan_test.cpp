@@ -158,7 +158,7 @@ inline void set_lower_label(struct_label *c1_label, struct_label *c2_label) noex
     }
 }
 
-void process_new_core_point(struct_label **p_labels, uint **cell_indexes, struct_label *p1_label, const bool *is_core,
+void process_new_core_point(struct_label **p_labels, uint **cell_indexes, struct_label *p1_label, const bool_vector &is_core,
         const uint c1_id, const uint size1, uint index) noexcept {
     bool has_other_cores = false;
     for (uint k = 0; k < size1; k++) {
@@ -182,7 +182,7 @@ void process_new_core_point(struct_label **p_labels, uint **cell_indexes, struct
 }
 
 void process_point_labels_in_range(struct_label **p_labels, uint **cell_indexes, const bool *range_table,
-        const uint *v_cell_ns, const bool *is_core, const uint c1_id, const uint c2_id) noexcept {
+        const uint *v_cell_ns, const bool_vector &is_core, const uint c1_id, const uint c2_id) noexcept {
     int size1 = v_cell_ns[c1_id];
     int size2 = v_cell_ns[c2_id];
     int index = 0;
@@ -218,7 +218,7 @@ void process_point_labels_in_range(struct_label **p_labels, uint **cell_indexes,
 }
 
 void apply_marked_in_range(uint **cell_indexes, const bool *range_table, std::vector<uint> &v_point_nps, const uint *v_cell_ns,
-        const bool *is_core, const std::vector<uint8_t> &is_border_cell, const uint c1_id, const uint c2_id) {
+        const bool_vector &is_core, const std::vector<uint8_t> &is_border_cell, const uint c1_id, const uint c2_id) {
     uint size1 = v_cell_ns[c1_id];
     uint size2 = v_cell_ns[c2_id];
     uint index = 0;
@@ -281,7 +281,7 @@ void process_ac_ac(struct_label **p_labels, float *v_coords, const uint *v_c1_in
 }
 
 void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool_vector &cell_has_cores, const uint *v_cell_ns,
-        const std::vector<uint> &v_cell_nps, const std::vector<uint> &v_point_nps, bool *is_core, const uint c1_id, const uint m) {
+        const std::vector<uint> &v_cell_nps, const std::vector<uint> &v_point_nps, bool_vector &is_core, const uint c1_id, const uint m) {
     uint size = v_cell_ns[c1_id];
     for (uint i = 0; i < size; i++) {
         uint p1_id = cell_indexes[c1_id][i];
@@ -298,7 +298,7 @@ void process_new_core_cell(struct_label **ps, uint **cell_indexes, bool_vector &
 }
 
 void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const uint *v_cell_ns,
-        bool *range_table, const bool_vector &cell_has_cores,const bool *is_core, const uint c1_id, const uint c2_id,
+        bool *range_table, const bool_vector &cell_has_cores, const bool_vector &is_core, const uint c1_id, const uint c2_id,
         const uint max_d, const float e2) {
     int size1 = v_cell_ns[c1_id];
     int size2 = v_cell_ns[c2_id];
@@ -331,7 +331,7 @@ void process_nc_labels(struct_label **p_labels, const float *v_coords, uint **ce
 }
 
 void process_nc_nc(struct_label **p_labels, const float *v_coords, uint **cell_indexes, const uint *v_cell_ns,
-        bool *range_table, bool_vector &cell_has_cores, bool *is_core, const std::vector<uint8_t> &is_border_cell, 
+        bool *range_table, bool_vector &cell_has_cores, bool_vector &is_core, const std::vector<uint8_t> &is_border_cell, 
         std::vector<uint> &v_point_nps, std::vector<uint> &v_cell_nps, const uint c1_id, const uint c2_id, const uint max_d, 
         const float e2, const uint m) {
     uint size1 = v_cell_ns[c1_id];
@@ -438,7 +438,7 @@ void calculate_cell_boundaries_omp(float *v_coords, uint ***cell_indexes, uint *
 }
 
 void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***cell_indexes, uint ** cell_ns,
-        float **cell_dims_min,float **cell_dims_max, const std::vector<uint> &v_no_of_cells, bool *is_core,
+        float **cell_dims_min,float **cell_dims_max, const std::vector<uint> &v_no_of_cells, bool_vector &is_core,
         const std::vector<uint8_t> &is_border_cell, uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels, uint n_threads,
         uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
     uint max_points_in_cell = 0;
@@ -861,7 +861,7 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
 }
 
 void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const float e, const uint n,
-        const uint max_d, bool *is_core, uint n_threads) {
+        const uint max_d, bool_vector &is_core, uint n_threads) {
     std::vector<float> min_bounds;
     min_bounds.resize(max_d);
 
@@ -980,7 +980,7 @@ void read_input(const std::string &in_file, float *v_points, int max_d) {
     }
 }
 
-scan_result calculate_output(const bool *is_core, struct_label** ps, int n) {
+scan_result calculate_output(const bool_vector &is_core, struct_label** ps, int n) {
     scan_result result{0, 0, 0};
     
     for (int i = 0; i < n; i++) {
@@ -1038,15 +1038,15 @@ scan_result start_nextdbscan(const uint m, const float e, const uint max_d, cons
     for (uint i = 0; i < n; i++) {
         point_labels[i] = new struct_label();
     }
+
+    bool_vector is_core(n);
+    is_core.fill(n, false);
     
-    auto *is_core = new bool[n];
-    std::fill(is_core, is_core + n, false);
     nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
 
     scan_result results = calculate_output(is_core, point_labels, n);
 
     delete [] v_points;
-    delete [] is_core;
     for (uint i = 0; i < n; i++) {
         delete [] point_labels[i];
     }
