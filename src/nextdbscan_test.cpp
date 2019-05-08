@@ -989,9 +989,9 @@ scan_result calculate_output(const bool *is_core, struct_label** ps, int n) {
         }
     }
 
-    auto* labels = new bool[n];
-    std::fill(labels, labels + n, false);
-
+    bool_vector labels(n);
+    labels.fill(n, false);
+    
     #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         if (get_label(ps[i])->label != UNASSIGNED) {
@@ -1014,8 +1014,6 @@ scan_result calculate_output(const bool *is_core, struct_label** ps, int n) {
             ++noise;
         }
     }
-
-    delete [] labels;
 
     return result;
 }
