@@ -951,7 +951,9 @@ void displayOutput(const bool *is_core, struct_label** ps, int n) {
     std::fill(labels, labels + n, false);
     #pragma omp parallel for
     for (int i = 0; i < n; i++) {
-        labels[get_label(ps[i])->label] = true;
+        if (get_label(ps[i])->label != UNASSIGNED) {
+            labels[get_label(ps[i])->label] = true;
+        }
     }
     int cnt = 0;
     #pragma omp parallel for reduction(+: cnt)
