@@ -104,6 +104,7 @@ int main(int argc, char* const* argv) {
     else {
         input_file = argv[optind];
     }
+
     if (errors || m == -1 || e == -1 || max_d == -1) {
         std::cout << "Input Error: Please specify the m, e, d parameters" << std::endl;
         usage();
@@ -118,5 +119,9 @@ int main(int argc, char* const* argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    nextdbscan::start(m, e, max_d, n_threads, input_file);
+    nextdbscan::result results = nextdbscan::start(m, e, max_d, n_threads, input_file);
+    std::cout << std::endl;
+    std::cout << "Estimated clusters: " << results.clusters << std::endl;
+    std::cout << "Core Points: " << results.core_count << std::endl;
+    std::cout << "Noise Points: " << results.noise << std::endl;
 }

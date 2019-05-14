@@ -49,7 +49,7 @@ struct bool_vector {
     bool* data = nullptr;
 
     bool_vector() = delete;
-    inline bool_vector(const uint size) noexcept {
+    inline explicit bool_vector(const uint size) noexcept {
         data = new bool[size];
     }
     inline ~bool_vector() noexcept {
@@ -1036,9 +1036,15 @@ result start(const uint m, const float e, const uint max_d, const uint n_threads
 
     bool_vector is_core(n);
     is_core.fill(n, false);
-    
-    nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
 
+    auto t1 = std::chrono::high_resolution_clock::now();
+    nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    if (!g_quiet) {
+        std::cout << "Total execution time: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                  << " milliseconds\n";
+    }
     result results = calculate_output(is_core, point_labels, n);
 
     delete [] v_points;
