@@ -29,11 +29,10 @@ SOFTWARE.
 #include "nextdbscan.h"
 
 void usage() {
-    std::cout << "Usage: [executable] -m minPoints -e epsilon -d dimensions -t threads [input file]" << std::endl
+    std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl
               << "    Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
               << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
               << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
-              << "    -d dimensions: The number of dimensions to process, required" << std::endl
               << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl
               << "    -h help      : Show this help message" << std::endl
               << "    Output : A copy of the input data points plus an additional column containing the cluster id, the id 0 denotes noise" << std::endl;
@@ -95,7 +94,7 @@ int main(int argc, char* const* argv) {
         }
     }
     if (argc - optind <= 0) {
-        input_file = "../input/aloi-hsb-2x2x2.csv";
+        input_file = "../input/aloi-hsb-2x2x2_trimmed.csv";
     }
     else if (argc - optind > 1) {
         std::cerr << "Please provide only one data file" << std::endl;
@@ -105,8 +104,8 @@ int main(int argc, char* const* argv) {
         input_file = argv[optind];
     }
 
-    if (errors || m == -1 || e == -1 || max_d == -1) {
-        std::cout << "Input Error: Please specify the m, e, d parameters" << std::endl;
+    if (errors || m == -1 || e == -1) {
+        std::cout << "Input Error: Please specify the m, e" << std::endl;
         usage();
         std::exit(EXIT_FAILURE);
     }
@@ -119,9 +118,10 @@ int main(int argc, char* const* argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    nextdbscan::result results = nextdbscan::start(m, e, max_d, n_threads, input_file);
+    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file);
     std::cout << std::endl;
     std::cout << "Estimated clusters: " << results.clusters << std::endl;
     std::cout << "Core Points: " << results.core_count << std::endl;
     std::cout << "Noise Points: " << results.noise << std::endl;
+
 }

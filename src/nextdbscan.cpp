@@ -1036,19 +1036,38 @@ result calculate_output(const bool_vector &is_core, struct_label** ps, int n) no
     return res;
 }
 
-int count_lines(const std::string &in_file) noexcept {
+void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
     std::ifstream is(in_file);
-    std::string line;
+    std::string line, buf;
     int cnt = 0;
+    dimensions = 0;
     while (std::getline(is, line)) {
+        if (dimensions == 0) {
+            std::stringstream ss;
+            ss << line;
+            std::string last = "last";
+            bool parse = true;
+            while (parse) {
+                ss >> buf;
+                if (last == buf) {
+                    parse = false;
+                } else {
+                    ++dimensions;
+                    last = buf;
+                }
+            }
+        }
         ++cnt;
     }
-    return cnt;
+    lines = cnt;
 }
 
-result start(const uint m, const float e, const uint max_d, const uint n_threads, const std::string &in_file) noexcept {
-    uint n = count_lines(in_file);
-    
+result start(const uint m, const float e, const uint n_threads, const std::string &in_file) noexcept {
+    uint n, max_d;
+    count_lines_and_dimensions(in_file, n, max_d);
+
+    std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
+
     auto *v_points = new float[n*max_d];
     read_input(in_file, v_points, max_d);
     

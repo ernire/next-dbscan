@@ -13,8 +13,7 @@ namespace nextdbscan {
 
     result start(
         const unsigned int m, 
-        const float e, 
-        const unsigned int max_d, 
+        const float e,
         const unsigned int n_threads, 
         const std::string &in_file) noexcept;
 
