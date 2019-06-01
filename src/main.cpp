@@ -25,6 +25,7 @@ SOFTWARE.
 
 #include <iostream>
 #include <getopt.h>
+#include <fstream>
 
 #include "nextdbscan.h"
 
@@ -34,8 +35,8 @@ void usage() {
               << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
               << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
               << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl
-              << "    -h help      : Show this help message" << std::endl
-              << "    Output : A copy of the input data points plus an additional column containing the cluster id, the id 0 denotes noise" << std::endl;
+              << "    -o output    : Output file containing the cluster ids in the same order as the input" << std::endl
+              << "    -h help      : Show this help message" << std::endl;
 }
 
 int main(int argc, char* const* argv) {
@@ -45,6 +46,7 @@ int main(int argc, char* const* argv) {
     int n_threads = -1;
     int errors = 0;
     std::string input_file;
+    std::string output_file = "";
 
     while ((option = getopt(argc, argv, "hm:e:o:t:d:")) != -1) {
         switch (option) {
@@ -89,6 +91,10 @@ int main(int argc, char* const* argv) {
                 }
                 break;
             }
+            case 'o': {
+                output_file = optarg;
+                std::cout << "output file: " << output_file << std::endl;
+            }
             default:
                 break;
         }
@@ -123,5 +129,16 @@ int main(int argc, char* const* argv) {
     std::cout << "Estimated clusters: " << results.clusters << std::endl;
     std::cout << "Core Points: " << results.core_count << std::endl;
     std::cout << "Noise Points: " << results.noise << std::endl;
+
+    if (output_file.length() > 0) {
+        std::cout << "Writing output to " << output_file << std::endl;
+        std::ofstream os(output_file);
+        for (auto &c : *results.point_clusters) {
+            os << c << '\n';
+        }
+        os.flush();
+        os.close();
+        std::cout << "Done!" << std::endl;
+    }
 
 }

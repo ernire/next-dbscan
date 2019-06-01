@@ -2,6 +2,7 @@
 #define NEXTDBSCAN
 
 #include <string>
+#include <vector>
 
 namespace nextdbscan {
 
@@ -9,6 +10,7 @@ namespace nextdbscan {
         unsigned int clusters;
         unsigned int noise;
         unsigned int core_count;
+        std::vector<int> *point_clusters;
     };
 
     result start(

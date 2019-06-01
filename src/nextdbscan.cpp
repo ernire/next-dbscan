@@ -29,12 +29,11 @@ SOFTWARE.
 #include <iomanip>
 #include <cassert>
 #include <algorithm>
-#include <vector>
 #include <cstring>
 #include <fstream>
 #include <cstdint>
+#include <unordered_map>
 #include <omp.h>
-
 #include "nextdbscan.h"
 
 namespace nextdbscan {
@@ -999,29 +998,43 @@ void read_input(const std::string &in_file, float *v_points, int max_d) noexcept
 }
 
 result calculate_output(const bool_vector &is_core, struct_label** ps, int n) noexcept {
-    result res{0, 0, 0};
+    result res{0, 0, 0, new std::vector<int>(n)};
     
     for (int i = 0; i < n; i++) {
         if (is_core[i]) {
             ++res.core_count;
         }
     }
-
     bool_vector labels(n);
     labels.fill(n, false);
-    
     #pragma omp parallel for
     for (int i = 0; i < n; i++) {
-        if (get_label(ps[i])->label != UNASSIGNED) {
-            labels[get_label(ps[i])->label] = true;
+        int label = get_label(ps[i])->label;
+        (*res.point_clusters)[i] = label;
+        if (label != UNASSIGNED) {
+            labels[label] = true;
         }
     }
-
     uint& clusters = res.clusters;
     #pragma omp parallel for reduction(+: clusters)
     for (int i = 0; i < n; i++) {
         if (labels[i]) {
             ++clusters;
+        }
+    }
+    std::unordered_map<int, int> map;
+    std::unordered_map<int, int>::iterator iter;
+    int id = 0;
+    for (int i = 0; i < n; i++) {
+        int val = (*res.point_clusters)[i];
+        if (val == UNASSIGNED)
+            continue;
+        iter = map.find(val);
+        if (iter == map.end()) {
+            (*res.point_clusters)[i] = id;
+            map.insert(std::make_pair(val, id++));
+        } else {
+            (*res.point_clusters)[i] = iter->second;
         }
     }
 
