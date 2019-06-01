@@ -434,8 +434,9 @@ void calculate_cell_boundaries_omp(float *v_coords, uint ***cell_indexes, uint *
 
 void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***cell_indexes, uint ** cell_ns,
         float **cell_dims_min,float **cell_dims_max, const std::vector<uint> &v_no_of_cells, bool_vector &is_core,
-        const std::vector<uint8_t> &is_border_cell, uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels, uint n_threads,
-        uint max_levels, uint max_d, float e, float e2, uint m, const uint n) noexcept {
+        const std::vector<uint8_t> &is_border_cell, std::vector<uint> *s_c1_indexes, std::vector<uint> *s_c2_indexes,
+        std::vector<uint> *s_levels, uint n_threads, uint max_levels, uint max_d, float e, float e2, uint m,
+        const uint n, uint *t_s_capacity) noexcept {
     uint max_points_in_cell = 0;
     std::vector<uint> v_cell_nps(v_no_of_cells[0]);
     auto **range_table = new bool*[n_threads];
@@ -474,7 +475,12 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
                     s_levels[t_id][s_index] = level-1;
                     s_c1_indexes[t_id][s_index] = cell_indexes[level][i][j];
                     s_c2_indexes[t_id][s_index] = cell_indexes[level][i][k];
-                    ++s_index;
+                    if (++s_index == t_s_capacity[t_id]) {
+                        t_s_capacity[t_id] *= 2;
+                        s_levels[t_id].resize(t_s_capacity[t_id]);
+                        s_c1_indexes[t_id].resize(t_s_capacity[t_id]);
+                        s_c2_indexes[t_id].resize(t_s_capacity[t_id]);
+                    }
                 }
             }
             while (s_index > 0) {
@@ -499,7 +505,12 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
                                 s_levels[t_id][s_index] = l-1;
                                 s_c1_indexes[t_id][s_index] = cell_indexes[l][c1][j];
                                 s_c2_indexes[t_id][s_index] = cell_indexes[l][c2][k];
-                                ++s_index;
+                                if (++s_index == t_s_capacity[t_id]) {
+                                    t_s_capacity[t_id] *= 2;
+                                    s_levels[t_id].resize(t_s_capacity[t_id]);
+                                    s_c1_indexes[t_id].resize(t_s_capacity[t_id]);
+                                    s_c2_indexes[t_id].resize(t_s_capacity[t_id]);
+                                }
                             }
                         }
                     }
@@ -555,21 +566,27 @@ void process_cell_tree_omp(struct_label **ps_origin, float *v_coords, uint ***ce
 }
 
 void detect_border_cells(uint ***cell_indexes, uint **cell_ns, float **cell_dims_min, float **cell_dims_max,
-        std::vector<uint8_t> &border_cells, const std::vector<uint> &v_no_of_cells, uint **s_c1_indexes, uint **s_c2_indexes, uint **s_levels,
-        const uint max_levels, const uint max_d, const uint m, const float e) noexcept {
+        std::vector<uint8_t> &border_cells, const std::vector<uint> &v_no_of_cells, std::vector<uint> *s_c1_indexes,
+        std::vector<uint> *s_c2_indexes, std::vector<uint> *s_levels, const uint max_levels, const uint max_d,
+        const uint m, const float e, uint *t_s_capacity) noexcept {
     std::vector<uint> v_cell_nps(v_no_of_cells[0]);
     std::copy(cell_ns[0], cell_ns[0] + v_no_of_cells[0], v_cell_nps.data());
     for (uint level = 1; level < max_levels; level++) {
         #pragma omp parallel for
         for (uint i = 0; i < v_no_of_cells[level]; i++) {
             int t_id = omp_get_thread_num();
-            int s_index = 0;
+            uint s_index = 0;
             for (uint j = 0; j < cell_ns[level][i]; j++) {
                 for (uint k = j + 1; k < cell_ns[level][i]; k++) {
                     s_levels[t_id][s_index] = level - 1;
                     s_c1_indexes[t_id][s_index] = cell_indexes[level][i][j];
                     s_c2_indexes[t_id][s_index] = cell_indexes[level][i][k];
-                    ++s_index;
+                    if (++s_index == t_s_capacity[t_id]) {
+                        t_s_capacity[t_id] *= 2;
+                        s_levels[t_id].resize(t_s_capacity[t_id]);
+                        s_c1_indexes[t_id].resize(t_s_capacity[t_id]);
+                        s_c2_indexes[t_id].resize(t_s_capacity[t_id]);
+                    }
                 }
             }
             while (s_index > 0) {
@@ -593,7 +610,12 @@ void detect_border_cells(uint ***cell_indexes, uint **cell_ns, float **cell_dims
                                 s_levels[t_id][s_index] = l - 1;
                                 s_c1_indexes[t_id][s_index] = cell_indexes[l][c1][j];
                                 s_c2_indexes[t_id][s_index] = cell_indexes[l][c2][k];
-                                ++s_index;
+                                if (++s_index == t_s_capacity[t_id]) {
+                                    t_s_capacity[t_id] *= 2;
+                                    s_levels[t_id].resize(t_s_capacity[t_id]);
+                                    s_c1_indexes[t_id].resize(t_s_capacity[t_id]);
+                                    s_c2_indexes[t_id].resize(t_s_capacity[t_id]);
+                                }
                             }
                         }
                     }
@@ -884,9 +906,12 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
     std::vector<uint> v_no_of_cells(max_levels, 0);
     
     // stacks
-    auto** s_levels = new uint*[n_threads];
-    auto** s_c1_indexes = new uint*[n_threads];
-    auto** s_c2_indexes = new uint*[n_threads];
+//    auto** s_levels = new uint*[n_threads];
+//    auto** s_c1_indexes = new uint*[n_threads];
+//    auto** s_c2_indexes = new uint*[n_threads];
+    std::vector<uint> s_levels[n_threads];
+    std::vector<uint> s_c1_indexes[n_threads];
+    std::vector<uint> s_c2_indexes[n_threads];
 
     allocate_resources(v_eps_levels, dims_mult, min_bounds, max_bounds, max_levels, max_d, e_inner);
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -910,11 +935,12 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
         delete [] dims_mult[l];
     }
     delete [] dims_mult;
-    for (uint i = 0; i < n_threads; i++) {
-        // TODO use vectors instead of hard coded heuristic
-        s_levels[i] = new uint[v_no_of_cells[0]*10];
-        s_c1_indexes[i] = new uint[v_no_of_cells[0]*10];
-        s_c2_indexes[i] = new uint[v_no_of_cells[0]*10];
+    uint t_s_capacity[n_threads];
+    for (uint t = 0; t < n_threads; t++) {
+        t_s_capacity[t] = v_no_of_cells[0]*std::max((int)logf(max_d), 1);
+        s_levels[t].reserve(t_s_capacity[t]);
+        s_c1_indexes[t].reserve(t_s_capacity[t]);
+        s_c2_indexes[t].reserve(t_s_capacity[t]);
     }
     t1 = std::chrono::high_resolution_clock::now();
     calculate_cell_boundaries_omp(v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
@@ -929,7 +955,7 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
     t1 = std::chrono::high_resolution_clock::now();
     std::vector<uint8_t> border_cells(v_no_of_cells[0], 0);
     detect_border_cells(cell_indexes, cell_ns, cell_dims_min, cell_dims_max, border_cells, v_no_of_cells,
-            s_c1_indexes, s_c2_indexes, s_levels, max_levels, max_d, m, e);
+            s_c1_indexes, s_c2_indexes, s_levels, max_levels, max_d, m, e, t_s_capacity);
     t2 = std::chrono::high_resolution_clock::now();
     if (!g_quiet) {
         std::cout << "Border/noise cell detection: "
@@ -939,8 +965,8 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
 
     t1 = std::chrono::high_resolution_clock::now();
     process_cell_tree_omp(p_labels, v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
-                            is_core, border_cells, s_c1_indexes, s_c2_indexes,
-                            s_levels, n_threads, max_levels, max_d, e, e2, m, n);
+            is_core, border_cells, s_c1_indexes, s_c2_indexes, s_levels, n_threads, max_levels, max_d, e, e2, m, n,
+            t_s_capacity);
     t2 = std::chrono::high_resolution_clock::now();
     if (!g_quiet) {
         std::cout << "Process cell tree: "
