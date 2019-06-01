@@ -906,9 +906,6 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
     std::vector<uint> v_no_of_cells(max_levels, 0);
     
     // stacks
-//    auto** s_levels = new uint*[n_threads];
-//    auto** s_c1_indexes = new uint*[n_threads];
-//    auto** s_c2_indexes = new uint*[n_threads];
     std::vector<uint> s_levels[n_threads];
     std::vector<uint> s_c1_indexes[n_threads];
     std::vector<uint> s_c2_indexes[n_threads];
