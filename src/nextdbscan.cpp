@@ -41,6 +41,8 @@ namespace nextdbscan {
 
 static const int UNASSIGNED = -1;
 typedef unsigned long long ull;
+// TODO Detect when this is necessary during indexing
+//typedef unsigned __int128 ull;
 typedef unsigned int uint;
 
 static bool g_quiet = false;
@@ -769,7 +771,6 @@ void index_cells_omp_merge(const uint no_of_cells, std::vector<std::pair<ull, ui
                         selected_medians[i], [](auto pair, auto val) -> bool {
                     return pair.first < val;
                 });
-                vec_buckets[i].assign(iter1, iter2);
             }
         }
     }
@@ -858,8 +859,8 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
         // TODO Further investigate heuristic boundary
         if (n_threads > 2 && no_of_cells > n_threads*100) {
             index_cells_omp_merge(no_of_cells, vec_index_maps, vec_buckets, vec_cell_begin, medians,
-                                  median_buckets, cell_indexes, cell_ns, v_coords, min_bounds, dims_mult, v_eps_levels,
-                                  v_no_of_cells, selected_medians, max_d, l, n_threads);
+                    median_buckets, cell_indexes, cell_ns, v_coords, min_bounds, dims_mult, v_eps_levels,
+                    v_no_of_cells, selected_medians, max_d, l, n_threads);
         } else {
             index_cells_omp_simple(no_of_cells, vec_index_maps, cell_indexes, cell_ns, vec_cell_begin, v_coords,
                     min_bounds, dims_mult, v_eps_levels, v_no_of_cells, max_d, l, n_threads);
@@ -1072,6 +1073,9 @@ result start(const uint m, const float e, const uint n_threads, const std::strin
     count_lines_and_dimensions(in_file, n, max_d);
 
     std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
+    if (max_d > 8) {
+        std::cerr << "Attention!!! NextDBSCAN is not stable for higher dimensions (yet)" << std::endl;
+    }
 
     auto *v_points = new float[n*max_d];
     read_input(in_file, v_points, max_d);
