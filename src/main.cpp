@@ -121,7 +121,7 @@ int main(int argc, char* const* argv) {
     } else if (n_threads == -1) {
         n_threads = 1;
     }
-    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", d: " << max_d << ", t: "
+    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
     nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file);

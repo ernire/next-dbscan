@@ -33,6 +33,7 @@ SOFTWARE.
 #include <fstream>
 #include <cstdint>
 #include <unordered_map>
+#include <iterator>
 #include <omp.h>
 #include "nextdbscan.h"
 
@@ -1056,19 +1057,10 @@ void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &d
     dimensions = 0;
     while (std::getline(is, line)) {
         if (dimensions == 0) {
-            std::stringstream ss;
-            ss << line;
-            std::string last = "last";
-            bool parse = true;
-            while (parse) {
-                ss >> buf;
-                if (last == buf) {
-                    parse = false;
-                } else {
-                    ++dimensions;
-                    last = buf;
-                }
-            }
+            std::istringstream iss(line);
+            std::vector<std::string> results(std::istream_iterator<std::string>{iss},
+                    std::istream_iterator<std::string>());
+            dimensions = results.size();
         }
         ++cnt;
     }
@@ -1083,7 +1075,7 @@ result start(const uint m, const float e, const uint n_threads, const std::strin
 
     auto *v_points = new float[n*max_d];
     read_input(in_file, v_points, max_d);
-    
+
     auto **point_labels = new struct_label *[n];
     for (uint i = 0; i < n; i++) {
         point_labels[i] = new struct_label();
@@ -1107,7 +1099,6 @@ result start(const uint m, const float e, const uint n_threads, const std::strin
         delete [] point_labels[i];
     }
     delete [] point_labels;
-
     return results;
 }
 
