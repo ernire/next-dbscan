@@ -40,6 +40,7 @@ SOFTWARE.
 namespace nextdbscan {
 
 static const int UNASSIGNED = -1;
+//typedef unsigned int ull;
 typedef unsigned long long ull;
 // TODO Detect when this is necessary during indexing
 //typedef unsigned __int128 ull;
@@ -771,6 +772,7 @@ void index_cells_omp_merge(const uint no_of_cells, std::vector<std::pair<ull, ui
                         selected_medians[i], [](auto pair, auto val) -> bool {
                     return pair.first < val;
                 });
+                vec_buckets[i].assign(iter1, iter2);
             }
         }
     }
