@@ -859,7 +859,7 @@ void index_points_to_cells_omp_median_merge(float *v_coords, uint ***cell_indexe
             no_of_cells = v_no_of_cells[l - 1];
         }
         // TODO Further investigate heuristic boundary
-        if (n_threads > 2 && no_of_cells > n_threads*100) {
+        if (n_threads > 2 && max_d <= 8 && no_of_cells > n_threads*100) {
             index_cells_omp_merge(no_of_cells, vec_index_maps, vec_buckets, vec_cell_begin, medians,
                     median_buckets, cell_indexes, cell_ns, v_coords, min_bounds, dims_mult, v_eps_levels,
                     v_no_of_cells, selected_medians, max_d, l, n_threads);
@@ -952,17 +952,18 @@ void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const fl
                   << " milliseconds\n";
     }
 
-    t1 = std::chrono::high_resolution_clock::now();
     std::vector<uint8_t> border_cells(v_no_of_cells[0], 0);
-    detect_border_cells(cell_indexes, cell_ns, cell_dims_min, cell_dims_max, border_cells, v_no_of_cells,
-            s_c1_indexes, s_c2_indexes, s_levels, max_levels, max_d, m, e, t_s_capacity);
-    t2 = std::chrono::high_resolution_clock::now();
-    if (!g_quiet) {
-        std::cout << "Border/noise cell detection: "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                  << " milliseconds\n";
+    if (max_d <= 3) {
+        t1 = std::chrono::high_resolution_clock::now();
+        detect_border_cells(cell_indexes, cell_ns, cell_dims_min, cell_dims_max, border_cells, v_no_of_cells,
+                            s_c1_indexes, s_c2_indexes, s_levels, max_levels, max_d, m, e, t_s_capacity);
+        t2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Border/noise cell detection: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                      << " milliseconds\n";
+        }
     }
-
     t1 = std::chrono::high_resolution_clock::now();
     process_cell_tree_omp(p_labels, v_coords, cell_indexes, cell_ns, cell_dims_min, cell_dims_max, v_no_of_cells,
             is_core, border_cells, s_c1_indexes, s_c2_indexes, s_levels, n_threads, max_levels, max_d, e, e2, m, n,
