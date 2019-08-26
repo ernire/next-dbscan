@@ -2080,7 +2080,7 @@ namespace nextdbscan {
         std::vector<float> max_bounds(max_d);
         std::vector<ull> v_local_medians;
         std::vector<ull> v_merged_medians;
-        std::vector<uint> vv_median_index[n_threads];
+        std::vector<uint> vv_median_indexes[n_threads];
         std::vector<std::pair<ull, uint>> vv_median_buckets[n_threads];
         calc_bounds(v_coords, n, min_bounds, max_bounds, max_d);
         for (uint d = 0; d < max_d; d++) {
@@ -2133,6 +2133,73 @@ namespace nextdbscan {
                 }
                 std::sort(vv_index_maps[tid][level].begin(), vv_index_maps[tid][level].end());
                 if (level == 0 && n_threads > 1) {
+//                    v_merged_medians.push_back(0);
+//                    uint begin = 0;
+//                    uint end = vv_index_maps[tid][level].size();
+//                    std::vector<uint> v_tid_median_indexes;
+                    vv_median_indexes[tid].push_back(0);
+                    vv_median_indexes[tid].push_back(vv_index_maps[tid][level].size());
+                    for (uint t = 1; t < n_threads; t *= 2) {
+                        uint size = vv_median_indexes[tid].size()-1;
+                        for (uint i = 0; i < size; ++i) {
+                            uint begin = vv_median_indexes[tid][i];
+                            uint end = vv_median_indexes[tid][i+1];
+                            #pragma omp critical
+                            v_local_medians.push_back(vv_index_maps[tid][level][begin + ((end - begin) / 2)].first);
+                            #pragma omp barrier
+                            #pragma omp single
+                            {
+                                std::sort(v_local_medians.begin(), v_local_medians.end());
+                                uint middle_index = v_local_medians.size()/2-1;
+                                uint diff = (v_local_medians[middle_index+1] - v_local_medians[middle_index])/2;
+                                v_merged_medians.push_back(v_local_medians[middle_index] + diff);
+                                v_local_medians.clear();
+                            }
+                            auto i_begin = vv_index_maps[tid][level].begin();
+                            auto iter = std::lower_bound(i_begin + begin, i_begin + end,
+                                                         v_merged_medians.back(), [](auto &pair, auto val) -> bool {
+                                        return pair.first < val;
+                                    });
+                            vv_median_indexes[tid].push_back(iter - vv_index_maps[tid][level].begin());
+                        }
+                        std::sort(vv_median_indexes[tid].begin(), vv_median_indexes[tid].end());
+                    }
+                    #pragma omp critical
+                    {
+                        std::cout << "t: " << tid << ", ";
+                        for (auto &median : vv_median_indexes[tid]) {
+                            std::cout << median << " ";
+                        }
+                        std::cout << std::endl;
+                    }
+                    #pragma omp barrier
+                    uint size = 0;
+                    for (uint t = 0; t < n_threads; ++t) {
+                        size += vv_median_indexes[t][tid+1] - vv_median_indexes[t][tid] ;
+                    }
+                    #pragma omp critical
+                    std::cout << "Thread t: " << tid << " size: " << size << std::endl;
+                    vv_median_buckets[tid].reserve(size);
+                    for (uint t = 0; t < n_threads; ++t) {
+                        vv_median_buckets[tid].insert(vv_median_buckets[tid].end(),
+                                vv_index_maps[t][level].begin() + vv_median_indexes[t][tid],
+                                vv_index_maps[t][level].begin() + vv_median_indexes[t][tid+1]);
+//                        if (tid == 0) {
+//                            vv_median_buckets[tid].insert(vv_median_buckets[tid].end(), vv_index_maps[t][level].begin(), vv_index_maps[t][level].begin() + vv_median_index[t][0]);
+//                        } else if (tid == 1) {
+//                            vv_median_buckets[tid].insert(vv_median_buckets[tid].end(), vv_index_maps[t][level].begin() + vv_median_index[t][0], vv_index_maps[t][level].end());
+//                        }
+                    }
+                    std::sort(vv_median_buckets[tid].begin(), vv_median_buckets[tid].end());
+                    vv_index_maps[tid][level].clear();
+                    vv_index_maps[tid][level].shrink_to_fit();
+//                    #pragma omp barrier
+//                    assert(vv_median_buckets[0].size() + vv_median_buckets[1].size() == n);
+                    #pragma omp barrier
+                    vv_index_maps[tid][level] = std::move(vv_median_buckets[tid]);
+                    vv_median_buckets[tid] = std::vector<std::pair<ull, uint>>();
+
+                    /*
                     #pragma omp critical
                     v_local_medians.push_back(vv_index_maps[tid][level][vv_index_maps[tid][level].size()/2].first);
                     #pragma omp barrier
@@ -2171,11 +2238,12 @@ namespace nextdbscan {
                     std::sort(vv_median_buckets[tid].begin(), vv_median_buckets[tid].end());
                     vv_index_maps[tid][level].clear();
                     vv_index_maps[tid][level].shrink_to_fit();
-//                    #pragma omp barrier
-//                    assert(vv_median_buckets[0].size() + vv_median_buckets[1].size() == n);
-//                    #pragma omp barrier
+                    #pragma omp barrier
+                    assert(vv_median_buckets[0].size() + vv_median_buckets[1].size() == n);
+                    #pragma omp barrier
                     vv_index_maps[tid][level] = std::move(vv_median_buckets[tid]);
                     vv_median_buckets[tid] = std::vector<std::pair<ull, uint>>();
+                                                 */
                 }
                 ull last_index = vv_index_maps[tid][level][0].first;
                 vv_cell_begin[tid][level].push_back(0);
