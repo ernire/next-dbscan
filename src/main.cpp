@@ -116,7 +116,7 @@ int main(int argc, char* const* argv) {
         std::exit(EXIT_FAILURE);
     }
     if (n_threads > 1 && n_threads % 2 == 1) {
-        std::cerr << "The number of threads must be a multiple of 2 (2^0 also allowed)." << std::endl;
+        std::cerr << "The number of threads must be a multiple of 2 (2^0 also permitted)." << std::endl;
         std::exit(EXIT_FAILURE);
     } else if (n_threads == -1) {
         n_threads = 1;
