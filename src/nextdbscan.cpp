@@ -1350,6 +1350,7 @@ namespace nextdbscan {
             }
             process_cell_tree_single(p_labels, v_coords, vv_index_maps[tid], v_point_nps, stacks3[tid], vv_cell_begin[tid],
                     vv_cell_ns[tid], v_no_cells[tid], vv_cell_dim_min[tid], vv_cell_dim_max[tid],
+                    *vv_range_tables[tid], vv_cell_nps[tid], is_core, vv_cell_types[tid], max_levels, max_d, e, m, true);
             #pragma omp barrier
             #pragma omp for schedule(dynamic)
             for (uint i = 0; i < v_t_pair_tasks.size(); ++i) {
