@@ -14,10 +14,18 @@ namespace nextdbscan {
     };
 
     result start(
-        const unsigned int m, 
-        const float e,
-        const unsigned int n_threads, 
-        const std::string &in_file) noexcept;
+            unsigned int m,
+            float e,
+            unsigned int n_threads,
+            const std::string &in_file) noexcept;
+
+    result start_mpi(
+            unsigned int m,
+            float e,
+            unsigned int n_threads,
+            const std::string &in_file,
+            int mpi_rank,
+            int mpi_size) noexcept;
 
 };
 

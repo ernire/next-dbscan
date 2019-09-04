@@ -35,7 +35,9 @@ SOFTWARE.
 #include <unordered_map>
 #include <iterator>
 #include <omp.h>
+#include <mpi.h>
 #include "nextdbscan.h"
+#include "next_io.h"
 
 namespace nextdbscan {
 
@@ -2489,6 +2491,8 @@ namespace nextdbscan {
     void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const float e, const uint n,
             const uint max_d, bool_vector &is_core, uint n_threads) noexcept {
 
+        std::cout << "Starting nextDBSCAN: " << n << " " << max_d << std::endl;
+
         omp_set_num_threads(n_threads);
         auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -2501,7 +2505,7 @@ namespace nextdbscan {
         auto **vv_cell_dims_max = new std::vector<float> *[n_threads];
         auto **vv_range_tables = new bool_vector *[n_threads];
         auto t2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
+            if (!g_quiet) {
             std::cout << "Memory and init: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
                       << " milliseconds\n";
@@ -2541,12 +2545,11 @@ namespace nextdbscan {
         }
     }
 
-    void read_input(const std::string &in_file, float *v_points, int max_d) noexcept {
+    void read_input_txt(const std::string &in_file, float *v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
         std::stringstream ss;
         int index = 0;
-        auto t1 = std::chrono::high_resolution_clock::now();
         while (std::getline(is, line)) {
             ss.str(std::string());
             ss.clear();
@@ -2557,14 +2560,6 @@ namespace nextdbscan {
             }
         }
         is.close();
-        auto t2 = std::chrono::high_resolution_clock::now();
-
-        if (!g_quiet) {
-            std::cout << std::endl;
-            std::cout << "Read input took: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
     }
 
     result calculate_output(const bool_vector &is_core, struct_label **ps, int n) noexcept {
@@ -2636,15 +2631,127 @@ namespace nextdbscan {
         lines = cnt;
     }
 
+    result start_mpi(const uint m, const float e, const uint n_threads, const std::string &in_file, const int mpi_rank,
+            const int mpi_size) noexcept {
+
+        uint n, max_d;
+        float *v_points;
+//        mainStr.compare(mainStr.size() - toMatch.size(), toMatch.size(), toMatch) == 0)
+        std::string s_cmp = ".bin";
+//        float *v_all_data;
+        auto t1 = std::chrono::high_resolution_clock::now();
+        if (in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0) {
+            char c[in_file.size() + 1];
+            strcpy(c, in_file.c_str());
+            std::cout << "mpi size: " << mpi_size << " rank: " << mpi_rank << std::endl;
+            auto *data = new next_io(c, mpi_size, mpi_rank);
+//            auto *data = new next_io(c, 1, 0);
+            int read_bytes = data->load_next_samples();
+//            std::cout << "read data bytes: " << read_bytes << std::endl;
+            std::cout << "total samples: " << data->sample_no << std::endl;
+            std::cout << "read samples: " << data->sample_read_no << std::endl;
+//            std::cout << "rem samples: " << data->total_number_of_samples - data->remaining_samples << std::endl;
+            n = data->sample_read_no;
+            max_d = data->feature_no;
+            std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
+//            v_points = new float[n * max_d];
+//            v_all_data = data->features;
+            v_points = data->features;
+            std::cout << "rank " << mpi_rank << ", pre check: " << v_points[0] << " : " << v_points[55124*max_d] << " : " << v_points[55125*max_d] << " : " << v_points[110249*max_d] << std::endl;
+            // TODO use all gather
+//            v_points = new float[data->sample_no * max_d];
+//            MPI_Allgather(&v_all_data[data->block_sample_offset * max_d], n * max_d, MPI_FLOAT, v_points, n * max_d, MPI_FLOAT, MPI_COMM_WORLD);
+
+//            MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, v_points, n * max_d, MPI_FLOAT, MPI_COMM_WORLD);
+            std::vector<int> sizes;
+            sizes.reserve(n_threads);
+            std::vector<int> offsets;
+            offsets.reserve(n_threads);
+            data->get_parts_meta(sizes, offsets, data->sample_no, mpi_size, max_d);
+
+            std::cout << "sizes: " << sizes[0] << " " << sizes[1] << std::endl;
+            std::cout << "offsets: " << offsets[0] << " " << offsets[1] << std::endl;
+            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, v_points, &sizes[0], &offsets[0], MPI_FLOAT, MPI_COMM_WORLD);
+
+            std::cout << "rank " << mpi_rank << ", post check: " << v_points[0] << " : " << v_points[55124*max_d] << " : " << v_points[55125*max_d] << " : " << v_points[110249* max_d] << std::endl;
+            n = data->sample_no;
+//            MPI_Allgather(MPI_IN_PLACE, 0, MPI_FLOAT, v_all_data, n, MPI_FLOAT, MPI_COMM_WORLD);
+//            MPI_Allgatherv( MPI_IN_PLACE, 0, MPI_NU, &v_all_data[0],  localSizesFaceV, displsFaceV, MPI_DOUBLE, MPI_COMM_WORLD);
+//            MPI_Alltoall(&v_all_data[0], data->sample_no, MPI_FLOAT, )
+//            v_points = v_all_data;
+//            v_points = &data->features[data->block_sample_offset];
+        } else {
+            count_lines_and_dimensions(in_file, n, max_d);
+            std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
+            v_points = new float[n * max_d];
+//            v_all_data = v_points;
+            read_input_txt(in_file, v_points, max_d);
+        }            auto t2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << std::endl;
+            std::cout << "Read input took: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                      << " milliseconds\n";
+        }
+        t1 = std::chrono::high_resolution_clock::now();
+        auto **point_labels = new struct_label *[n];
+        for (uint i = 0; i < n; i++) {
+            point_labels[i] = new struct_label();
+        }
+        bool_vector is_core(n);
+        is_core.fill(n, false);
+//        if (mpi_rank == 0)
+        nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
+        t2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Execution time (excluding I/O): "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                      << " milliseconds\n";
+        }
+        result results = calculate_output(is_core, point_labels, n);
+
+        delete[] v_points;
+        for (uint i = 0; i < n; i++) {
+            delete[] point_labels[i];
+        }
+        delete[] point_labels;
+
+        return results;
+    }
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file) noexcept {
         uint n, max_d;
-        count_lines_and_dimensions(in_file, n, max_d);
+//        count_lines_and_dimensions(in_file, n, max_d);
+//        n = 110250;
+//        max_d = 8;
 
-        std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
 
-        auto *v_points = new float[n * max_d];
-        read_input(in_file, v_points, max_d);
-
+        float *v_points;
+//        mainStr.compare(mainStr.size() - toMatch.size(), toMatch.size(), toMatch) == 0)
+        std::string s_cmp = ".bin";
+        auto t1 = std::chrono::high_resolution_clock::now();
+        if (in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0) {
+            char c[in_file.size() + 1];
+            strcpy(c, in_file.c_str());
+            auto *data = new next_io(c, 2, 1);
+            int read_bytes = data->load_next_samples();
+            std::cout << "read data bytes: " << read_bytes << std::endl;
+            n = data->sample_read_no;
+            max_d = data->feature_no;
+            std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
+            std::cout << "block data offset: " << data->block_sample_offset << std::endl;
+            v_points = &data->features[data->block_sample_offset];
+        } else {
+            v_points = new float[n * max_d];
+            read_input_txt(in_file, v_points, max_d);
+        }            auto t2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << std::endl;
+            std::cout << "Read input took: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                      << " milliseconds\n";
+        }
+        t1 = std::chrono::high_resolution_clock::now();
         auto **point_labels = new struct_label *[n];
         for (uint i = 0; i < n; i++) {
             point_labels[i] = new struct_label();
@@ -2652,10 +2759,8 @@ namespace nextdbscan {
 
         bool_vector is_core(n);
         is_core.fill(n, false);
-
-        auto t1 = std::chrono::high_resolution_clock::now();
         nextDBSCAN(point_labels, v_points, m, e, n, max_d, is_core, n_threads);
-        auto t2 = std::chrono::high_resolution_clock::now();
+        t2 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "Execution time (excluding I/O): "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
