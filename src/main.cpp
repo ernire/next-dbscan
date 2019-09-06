@@ -27,9 +27,11 @@ SOFTWARE.
 #include <getopt.h>
 #include <fstream>
 #include <iomanip>
-#include <mpi.h>
 #include "nextdbscan.h"
 #include "next_io.h"
+#ifdef MPI_ON
+#include <mpi.h>
+#endif
 
 void usage() {
     std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl
@@ -42,16 +44,6 @@ void usage() {
 }
 
 int main(int argc, char** argv) {
-
-    MPI_Init(&argc, &argv);
-
-    int mpi_size;
-    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-
-    int mpi_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-
-    std::cout << "Hello with rank " << mpi_rank << std::endl;
 
     char option;
     int m = -1, max_d = -1;
@@ -138,8 +130,20 @@ int main(int argc, char** argv) {
     std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
         << n_threads << " file:" << input_file << std::endl;
 
-    nextdbscan::result results = nextdbscan::start_mpi(m, e, n_threads, input_file, mpi_rank, mpi_size);
-//    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file);
+    uint block_index = 0;
+    uint blocks_no = 1;
+#ifdef MPI_ON
+    MPI_Init(&argc, &argv);
+    int mpi_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    int mpi_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    blocks_index = mpi_rank;
+    blocks_no = mpi_size;
+    std::cout << "Hello with rank " << mpi_rank << std::endl;
+#endif
+
+    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, block_index, blocks_no);
     std::cout << std::endl;
     std::cout << "Estimated clusters: " << results.clusters << std::endl;
     std::cout << "Core Points: " << results.core_count << std::endl;
@@ -155,6 +159,8 @@ int main(int argc, char** argv) {
         os.close();
         std::cout << "Done!" << std::endl;
     }
+#ifdef MPI_ON
     MPI_Finalize();
+#endif
 
 }

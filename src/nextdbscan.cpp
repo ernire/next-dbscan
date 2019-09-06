@@ -2312,18 +2312,37 @@ namespace nextdbscan {
         vv_median_buckets[tid] = std::vector<std::pair<ull, uint>>();
     }
 
+    int build_grid_cell_tree(float *v_coords, std::vector<uint> **vv_index_maps, std::vector<ull> **vv_value_maps, std::vector<std::pair<ull, uint>> **vv_old,
+            std::vector<uint> **vv_cell_begin, std::vector<uint> **vv_cell_ns, std::vector<uint> *v_no_cells,
+            bool_vector **vv_range_tables, const uint max_d, const uint n, const uint n_threads,
+            const float e_inner) noexcept {
+        float max_limit = INT32_MIN;
+        std::vector<float> min_bounds(max_d);
+        std::vector<float> max_bounds(max_d);
+//        std::vector<std::pair<ull, uint>> vv_buckets[n_threads];
+//        std::vector<uint> vv_index_buckets[n_threads];
+//        std::vector<ull> vv_value_buckets[n_threads];
+        calc_bounds(v_coords, n, min_bounds, max_bounds, max_d);
+        for (uint d = 0; d < max_d; d++) {
+            if (max_bounds[d] - min_bounds[d] > max_limit)
+                max_limit = max_bounds[d] - min_bounds[d];
+        }
+        int max_levels = static_cast<int>(ceilf(logf(max_limit / e_inner) / logf(2))) + 1;
+        return max_levels;
+    }
+
     int
-    index_points(float *v_coords, std::vector<std::pair<ull, uint>> **vv_index_maps, std::vector<uint> **vv_cell_begin,
-            std::vector<uint> **vv_cell_ns, std::vector<uint> *v_no_cells, bool_vector **vv_range_tables,
-            const uint max_d, const uint n, const uint n_threads, const float e_inner) noexcept {
+    index_points(float *v_coords, std::vector<uint> **vv_index_maps, std::vector<ull> **vv_value_maps, std::vector<std::pair<ull, uint>> **vv_old,
+            std::vector<uint> **vv_cell_begin, std::vector<uint> **vv_cell_ns, std::vector<uint> *v_no_cells,
+            bool_vector **vv_range_tables, const uint max_d, const uint n, const uint n_threads,
+            const float e_inner) noexcept {
         auto t0_1 = std::chrono::high_resolution_clock::now();
         float max_limit = INT32_MIN;
         std::vector<float> min_bounds(max_d);
         std::vector<float> max_bounds(max_d);
-        std::vector<ull> v_local_medians;
-        std::vector<ull> v_merged_medians;
-        std::vector<uint> vv_median_indexes[n_threads];
-        std::vector<std::pair<ull, uint>> vv_median_buckets[n_threads];
+        std::vector<std::pair<ull, uint>> vv_buckets[n_threads];
+        std::vector<uint> vv_index_buckets[n_threads];
+        std::vector<ull> vv_value_buckets[n_threads];
         calc_bounds(v_coords, n, min_bounds, max_bounds, max_d);
         for (uint d = 0; d < max_d; d++) {
             if (max_bounds[d] - min_bounds[d] > max_limit)
@@ -2340,7 +2359,9 @@ namespace nextdbscan {
         }
 
         for (uint t = 0; t < n_threads; ++t) {
-            vv_index_maps[t] = new std::vector<std::pair<ull, uint>>[max_levels];
+            vv_old[t] = new std::vector<std::pair<ull, uint>>[max_levels];
+            vv_index_maps[t] = new std::vector<uint>[max_levels];
+            vv_value_maps[t] = new std::vector<ull>[max_levels];
             vv_cell_begin[t] = new std::vector<uint>[max_levels];
             vv_cell_ns[t] = new std::vector<uint>[max_levels];
             v_no_cells[t].reserve(max_levels);
@@ -2357,56 +2378,121 @@ namespace nextdbscan {
         {
             const uint tid = omp_get_thread_num();
             for (int level = 0; level < max_levels; ++level) {
+                std::cout << "Start level: " << level << std::endl;
                 uint mem_reserve = level == 0 ? n / n_threads + 1 : v_no_cells[tid][level - 1];
+                vv_old[tid][level].reserve(mem_reserve);
                 vv_index_maps[tid][level].reserve(mem_reserve);
+                vv_value_maps[tid][level].reserve(mem_reserve);
                 vv_cell_begin[tid][level].reserve(mem_reserve);
+                std::cout << "CHECKPOINT #1" << std::endl;
                 if (level == 0) {
                     #pragma omp for schedule(static)
                     for (uint i = 0; i < n; ++i) {
-                        ull cell_index = get_cell_index(&v_coords[i * max_d], min_bounds, dims_mult[0], max_d,
+                        ull cell_index = get_cell_index(&v_coords[i*max_d], min_bounds, dims_mult[0], max_d,
                                 v_eps_levels[0]);
-                        vv_index_maps[tid][0].emplace_back(cell_index, i);
+                        vv_index_maps[tid][0].push_back(i);
+                        vv_value_maps[tid][0].push_back(cell_index);
+                        vv_old[tid][0].emplace_back(cell_index, i);
                     }
                 } else {
-                    for (uint i = 0; i < v_no_cells[tid][level - 1]; ++i) {
+                    for (uint i = 0; i < v_no_cells[tid][level-1]; ++i) {
                         int level_mod = 1;
                         uint p_index = i;
                         while (level - level_mod >= 0) {
-                            p_index = vv_index_maps[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]].second;
+//                            p_index = vv_index_maps[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]].second;
+                            p_index = vv_value_maps[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]];
+                            assert(p_index == vv_old[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]].second);
                             ++level_mod;
                         }
                         ull cell_index = get_cell_index(&v_coords[p_index * max_d], min_bounds, dims_mult[level],
                                 max_d, v_eps_levels[level]);
-                        vv_index_maps[tid][level].emplace_back(cell_index, i);
+                        vv_index_maps[tid][level].push_back(i);
+                        vv_value_maps[tid][level].push_back(cell_index);
+                        vv_old[tid][level].emplace_back(cell_index, i);
                     }
                 }
-                std::sort(vv_index_maps[tid][level].begin(), vv_index_maps[tid][level].end());
+                std::cout << "CHECKPOINT #2" << std::endl;
+                std::sort(vv_old[tid][level].begin(), vv_old[tid][level].end());
+                std::sort(vv_index_maps[tid][level].begin(), vv_index_maps[tid][level].end(),
+                        [&] (const auto &i1, const auto &i2) -> bool {
+                    return vv_value_maps[tid][level][i1] < vv_value_maps[tid][level][i2];
+                    /*
+                    if (i1 < i2) {
+                        uint val = vv_value_maps[tid][level][i1];
+                        vv_value_maps[tid][level][i1] = vv_value_maps[tid][level][i2];
+                        vv_value_maps[tid][level][i2] = val;
+//                        std::swap(vv_value_maps[tid][level][i1], vv_value_maps[tid][level][i2]);
+                        return true;
+                    }
+                    return false;
+                     */
+                });
+
+                std::cout << "CHECKPOINT #3" << std::endl;
+                assert(vv_old[tid][level].size() == vv_index_maps[tid][level].size());
+                for (int i = 0; i < vv_old[tid][level].size(); ++i ) {
+                    assert(vv_old[tid][level][i].first == vv_index_maps[tid][level][i]);
+                    assert(vv_old[tid][level][i].second == vv_value_maps[tid][level][i]);
+                }
+                std::cout << "CHECKPOINT #4" << std::endl;
                 if (level == 0 && n_threads > 1) {
-                    vv_median_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
-                #pragma omp barrier
+                    vv_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
+                    vv_index_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
+                    vv_value_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
+                    #pragma omp barrier
                     uint chunk = vv_index_maps[0][level].size() / n_threads;
                     for (uint t = 0; t < n_threads; ++t) {
-                        auto begin = std::next(vv_index_maps[t][level].begin(), (tid *chunk));
-                        auto end = std::next(vv_index_maps[t][level].begin(), ((tid+1) *chunk));
+                        auto begin = std::next(vv_old[t][level].begin(), (tid *chunk));
+                        auto end = std::next(vv_old[t][level].begin(), ((tid+1) *chunk));
                         if (tid == n_threads-1)
-                            end = vv_index_maps[t][level].end();
-                        vv_median_buckets[tid].insert(vv_median_buckets[tid].end(), begin, end);
+                            end = vv_old[t][level].end();
+                        vv_buckets[tid].insert(vv_buckets[tid].end(), begin, end);
+                        auto begin1 = std::next(vv_index_maps[t][level].begin(), (tid *chunk));
+                        auto end1 = std::next(vv_index_maps[t][level].begin(), ((tid+1) *chunk));
+                        if (tid == n_threads-1)
+                            end1 = vv_index_maps[t][level].end();
+                        vv_index_buckets[tid].insert(vv_index_buckets[tid].end(), begin1, end1);
+                        auto begin2 = std::next(vv_value_maps[t][level].begin(), (tid *chunk));
+                        auto end2 = std::next(vv_value_maps[t][level].begin(), ((tid+1) *chunk));
+                        if (tid == n_threads-1)
+                            end2 = vv_value_maps[t][level].end();
+                        vv_value_buckets[tid].insert(vv_value_buckets[tid].end(), begin2, end2);
                     }
-                    std::sort(vv_median_buckets[tid].begin(), vv_median_buckets[tid].end());
+                    std::sort(vv_buckets[tid].begin(), vv_buckets[tid].end());
+                    vv_old[tid][level].clear();
+                    vv_old[tid][level].shrink_to_fit();
                     vv_index_maps[tid][level].clear();
                     vv_index_maps[tid][level].shrink_to_fit();
+                    vv_value_maps[tid][level].clear();
+                    vv_value_maps[tid][level].shrink_to_fit();
                     #pragma omp barrier
-                    vv_index_maps[tid][level] = std::move(vv_median_buckets[tid]);
-                    vv_median_buckets[tid] = std::vector<std::pair<ull, uint>>();
+                    vv_old[tid][level] = std::move(vv_buckets[tid]);
+                    vv_index_maps[tid][level] = std::move(vv_index_buckets[tid]);
+                    vv_value_maps[tid][level] = std::move(vv_value_buckets[tid]);
+                    vv_buckets[tid] = std::vector<std::pair<ull, uint>>();
+                    vv_index_buckets[tid] = std::vector<uint>();
+                    vv_value_buckets[tid] = std::vector<ull>();
 //                    median_split(vv_index_maps, v_local_medians, v_merged_medians, vv_median_indexes,
 //                            vv_median_buckets, level, n_threads, tid);
                 }
+                std::cout << "CHECKPOINT #5" << std::endl;
+                /*
                 ull last_index = vv_index_maps[tid][level][0].first;
                 vv_cell_begin[tid][level].push_back(0);
                 for (uint i = 1; i < vv_index_maps[tid][level].size(); i++) {
                     if (vv_index_maps[tid][level][i].first != last_index) {
                         vv_cell_begin[tid][level].push_back(i);
                         last_index = vv_index_maps[tid][level][i].first;
+                    }
+                }
+                 */
+
+                ull last_index = vv_value_maps[tid][level][vv_index_maps[tid][level][0]];
+                vv_cell_begin[tid][level].push_back(0);
+                for (uint i = 1; i < vv_value_maps[tid][level].size(); i++) {
+                    if (vv_value_maps[tid][level][vv_index_maps[tid][level][i]] != last_index) {
+                        vv_cell_begin[tid][level].push_back(i);
+                        last_index = vv_value_maps[tid][level][vv_index_maps[tid][level][i]];
                     }
                 }
 //                #pragma omp critical
@@ -2426,7 +2512,6 @@ namespace nextdbscan {
                             max_points_in_cell = vv_cell_ns[tid][level][i];
                     }
                 }
-
             }
         }
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -2497,7 +2582,9 @@ namespace nextdbscan {
         auto t1 = std::chrono::high_resolution_clock::now();
 
         float e_inner = (e / 2);
-        auto **vv_index_maps = new std::vector<std::pair<ull, uint>> *[n_threads];
+        auto **vv_old = new std::vector<std::pair<ull, uint>> *[n_threads];
+        auto **vv_index_maps = new std::vector<uint> *[n_threads];
+        auto **vv_value_maps = new std::vector<ull> *[n_threads];
         auto **vv_cell_begin = new std::vector<uint> *[n_threads];
         auto **vv_cell_ns = new std::vector<uint> *[n_threads];
         auto v_no_cells = new std::vector<uint>[n_threads];
@@ -2512,21 +2599,20 @@ namespace nextdbscan {
         }
 
         t1 = std::chrono::high_resolution_clock::now();
-        int max_levels = index_points(v_coords, vv_index_maps, vv_cell_begin, vv_cell_ns, v_no_cells, vv_range_tables,
-                max_d, n, n_threads, e_inner);
-//        std::vector<uint> v_cell_nps(v_no_cells[0]);
-//        std::vector<uint> v_point_nps(n, 0);
-//        type_vector cell_types(v_no_of_cells[0]);
-//        cell_types.fill(v_no_of_cells[0], TYPE_NC);
+//        int max_levels = index_points(v_coords, vv_index_maps, vv_value_maps, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells,
+//                vv_range_tables, max_d, n, n_threads, e_inner);
+        int max_levels = build_grid_cell_tree(v_coords, vv_index_maps, vv_value_maps, vv_old, vv_cell_begin, vv_cell_ns,
+                v_no_cells, vv_range_tables, max_d, n, n_threads, e_inner);
         t2 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "Point indexing: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
                       << " milliseconds\n";
         }
+
         t1 = std::chrono::high_resolution_clock::now();
-        calculate_cell_boundaries(v_coords, vv_index_maps, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
-                vv_cell_dims_max, max_levels, max_d, n_threads);
+//        calculate_cell_boundaries(v_coords, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
+//                vv_cell_dims_max, max_levels, max_d, n_threads);
         t2 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "Calculate boundaries: "
@@ -2535,8 +2621,8 @@ namespace nextdbscan {
         }
 
         t1 = std::chrono::high_resolution_clock::now();
-        process_cell_tree(p_labels, v_coords, is_core, vv_index_maps, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
-                vv_cell_dims_max, vv_range_tables, max_levels, max_d, n_threads, e, n, m);
+//        process_cell_tree(p_labels, v_coords, is_core, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
+//                vv_cell_dims_max, vv_range_tables, max_levels, max_d, n_threads, e, n, m);
         t2 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "tree process: "
@@ -2645,7 +2731,6 @@ namespace nextdbscan {
             strcpy(c, in_file.c_str());
             std::cout << "mpi size: " << mpi_size << " rank: " << mpi_rank << std::endl;
             auto *data = new next_io(c, mpi_size, mpi_rank);
-//            auto *data = new next_io(c, 1, 0);
             int read_bytes = data->load_next_samples();
 //            std::cout << "read data bytes: " << read_bytes << std::endl;
             std::cout << "total samples: " << data->sample_no << std::endl;
@@ -2654,32 +2739,21 @@ namespace nextdbscan {
             n = data->sample_read_no;
             max_d = data->feature_no;
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
-//            v_points = new float[n * max_d];
-//            v_all_data = data->features;
             v_points = data->features;
             std::cout << "rank " << mpi_rank << ", pre check: " << v_points[0] << " : " << v_points[55124*max_d] << " : " << v_points[55125*max_d] << " : " << v_points[110249*max_d] << std::endl;
             // TODO use all gather
-//            v_points = new float[data->sample_no * max_d];
-//            MPI_Allgather(&v_all_data[data->block_sample_offset * max_d], n * max_d, MPI_FLOAT, v_points, n * max_d, MPI_FLOAT, MPI_COMM_WORLD);
-
-//            MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, v_points, n * max_d, MPI_FLOAT, MPI_COMM_WORLD);
             std::vector<int> sizes;
             sizes.reserve(n_threads);
             std::vector<int> offsets;
             offsets.reserve(n_threads);
-            data->get_parts_meta(sizes, offsets, data->sample_no, mpi_size, max_d);
+            next_io::get_parts_meta(sizes, offsets, data->sample_no, mpi_size, max_d);
 
             std::cout << "sizes: " << sizes[0] << " " << sizes[1] << std::endl;
             std::cout << "offsets: " << offsets[0] << " " << offsets[1] << std::endl;
-            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, v_points, &sizes[0], &offsets[0], MPI_FLOAT, MPI_COMM_WORLD);
+//            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, v_points, &sizes[0], &offsets[0], MPI_FLOAT, MPI_COMM_WORLD);
 
             std::cout << "rank " << mpi_rank << ", post check: " << v_points[0] << " : " << v_points[55124*max_d] << " : " << v_points[55125*max_d] << " : " << v_points[110249* max_d] << std::endl;
             n = data->sample_no;
-//            MPI_Allgather(MPI_IN_PLACE, 0, MPI_FLOAT, v_all_data, n, MPI_FLOAT, MPI_COMM_WORLD);
-//            MPI_Allgatherv( MPI_IN_PLACE, 0, MPI_NU, &v_all_data[0],  localSizesFaceV, displsFaceV, MPI_DOUBLE, MPI_COMM_WORLD);
-//            MPI_Alltoall(&v_all_data[0], data->sample_no, MPI_FLOAT, )
-//            v_points = v_all_data;
-//            v_points = &data->features[data->block_sample_offset];
         } else {
             count_lines_and_dimensions(in_file, n, max_d);
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << std::endl;
@@ -2721,19 +2795,14 @@ namespace nextdbscan {
 
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file) noexcept {
         uint n, max_d;
-//        count_lines_and_dimensions(in_file, n, max_d);
-//        n = 110250;
-//        max_d = 8;
-
 
         float *v_points;
-//        mainStr.compare(mainStr.size() - toMatch.size(), toMatch.size(), toMatch) == 0)
         std::string s_cmp = ".bin";
         auto t1 = std::chrono::high_resolution_clock::now();
         if (in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0) {
             char c[in_file.size() + 1];
             strcpy(c, in_file.c_str());
-            auto *data = new next_io(c, 2, 1);
+            auto *data = new next_io(c, 1, 0);
             int read_bytes = data->load_next_samples();
             std::cout << "read data bytes: " << read_bytes << std::endl;
             n = data->sample_read_no;
@@ -2742,6 +2811,7 @@ namespace nextdbscan {
             std::cout << "block data offset: " << data->block_sample_offset << std::endl;
             v_points = &data->features[data->block_sample_offset];
         } else {
+            count_lines_and_dimensions(in_file, n, max_d);
             v_points = new float[n * max_d];
             read_input_txt(in_file, v_points, max_d);
         }            auto t2 = std::chrono::high_resolution_clock::now();
