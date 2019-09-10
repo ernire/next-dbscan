@@ -1411,7 +1411,7 @@ namespace nextdbscan {
 
     void calculate_level_cell_bounds(float *v_coords, std::vector<uint> &v_cell_begins,
             std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps, std::vector<std::vector<float>> &vv_min_cell_dims,
-            std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) {
+            std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept {
         vv_min_cell_dims[l].resize(v_cell_begins.size()*max_d);
         vv_max_cell_dims[l].resize(vv_min_cell_dims[l].size());
         float *coord_min = nullptr, *coord_max = nullptr;
@@ -1481,25 +1481,10 @@ namespace nextdbscan {
         return static_cast<int>(ceilf(logf(max_limit / e_inner) / logf(2))) + 1;
     }
 
-
-    /*
-int index_level_omp(const float *v_coords, uint *v_index_map, std::vector<uint> *v_index_lookup, ull *v_value_map,
-            std::vector<uint> *vv_cell_begins,
-            std::vector<uint> &v_cell_ns,
-            const ull *v_dims_mult, const float eps_level,
-            std::unique_ptr<float[]> &v_min_bounds,
-            const uint n,
-            const uint max_d, const uint n_threads, const int level) {
-        uint max_points_in_cell = 0;
-        std::vector<uint> v_block_sizes(n_threads);
-        std::vector<uint> v_block_offsets(n_threads);
-     */
-
-
     int index_level(const float *v_coords, std::vector<uint> &v_index_map, std::vector<ull> &v_value_map,
             std::vector<std::vector<uint>> &vv_index_lookup, std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<uint> &v_cell_ns, std::unique_ptr<float[]> &v_min_bounds, const ull *v_dims_mult,
-            const int level, const uint max_d, const float eps_level) {
+            const int level, const uint max_d, const float eps_level) noexcept {
         std::iota(v_index_map.begin(), v_index_map.end(), 0);
         assert(v_index_map[0] == 0 && v_index_map[1] == 1);
         for (uint i = 0; i < v_index_map.size(); ++i) {
@@ -1553,7 +1538,7 @@ int index_level_omp(const float *v_coords, uint *v_index_map, std::vector<uint> 
             std::vector<uint> &v_leaf_cell_nns, std::vector<uint8_t > &v_cell_types, std::vector<bool> &v_is_core,
             std::vector<uint> &v_point_nns, std::vector<cell_meta_3> &stack3,
             std::vector<std::vector<float>> &vv_min_cell_dims, std::vector<std::vector<float>> &vv_max_cell_dims,
-            uint level, const uint m, const uint max_d, const float e, const float e2) {
+            uint level, const uint m, const uint max_d, const float e, const float e2) noexcept {
         if (level == 0) {
             for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
                 uint begin = vv_cell_begins[0][i];
@@ -1629,11 +1614,17 @@ int index_level_omp(const float *v_coords, uint *v_index_map, std::vector<uint> 
 
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint block_index, const uint blocks_no) noexcept {
-        auto t1 = std::chrono::high_resolution_clock::now();
+        auto time1 = std::chrono::high_resolution_clock::now();
         omp_set_num_threads(n_threads);
         uint n, max_d;
         std::unique_ptr<float[]> v_coords;
         uint bytes_read = process_input(in_file, v_coords, n, max_d, blocks_no, block_index);
+        auto time2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Input read: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(time2 - time1).count()
+                      << " milliseconds\n";
+        }
         std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << bytes_read <<
             " bytes." << std::endl;
         // Init
@@ -1695,17 +1686,17 @@ int index_level_omp(const float *v_coords, uint *v_index_map, std::vector<uint> 
             vv_is_core[t].resize(v_omp_block_sizes[t], false);
             vv_point_nns[t].resize(v_omp_block_sizes[t], 0);
         }
-        auto t2 = std::chrono::high_resolution_clock::now();
+        auto time3 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "Memory init: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(time3 - time2).count()
                       << " milliseconds\n";
         }
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
             uint size = v_omp_block_sizes[tid];
-            auto p_v_block_coords = &v_coords[v_omp_block_offsets[tid]];
+            auto p_v_block_coords = &v_coords[v_omp_block_offsets[tid]*max_d];
             for (uint l = 0; l < max_levels; ++l) {
                 vvv_index_maps[tid][l].resize(size);
                 vvv_value_maps[tid][l].resize(size);
@@ -1727,11 +1718,36 @@ int index_level_omp(const float *v_coords, uint *v_index_map, std::vector<uint> 
                         vv_leaf_cell_nns[tid], vv_cell_types[tid], vv_is_core[tid], vv_point_nns[tid], stacks3[tid],
                         vvv_min_cell_dims[tid], vvv_max_cell_dims[tid], l, m, max_d, e, e2);
             }
+            uint l = max_levels-2;
+            int tree_cnt = 0;
+            int job_cnt = 0;
+            // multi
+            for (uint t1 = 0; t1 < n_threads; ++t1) {
+                for (uint i = 0; i < vvv_cell_ns[t1][l].size(); ++i) {
+                    for (uint t2 = t1+1; t2 < n_threads; ++t2) {
+                        for (uint j = 0; j < vvv_cell_ns[t2][l].size(); ++j) {
+                            // TODO use n_cores instead of n_threads
+                            if ((int)((tree_cnt++)%n_threads) == tid) {
+                                ++job_cnt;
+                                stacks5[tid].emplace_back(l, i, j, t1, t2);
+                            }
+                        }
+                    }
+                }
+            }
+            #pragma omp critical
+            std::cout << "Thread t: " << tid << " job cnt: " << job_cnt << std::endl;
         }
-        auto t3 = std::chrono::high_resolution_clock::now();
+        auto time4 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Process cell trees: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(time4 - time3).count()
+                      << " milliseconds\n";
+        }
+        auto time5 = std::chrono::high_resolution_clock::now();
         if (!g_quiet) {
             std::cout << "Total Execution Time: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t1).count()
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(time5 - time1).count()
                       << " milliseconds\n";
         }
         return calculate_output(vv_is_core[0], vv_labels[0], v_omp_block_sizes[0]);
