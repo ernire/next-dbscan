@@ -46,7 +46,7 @@ void usage() {
 int main(int argc, char** argv) {
 
     char option;
-    int m = -1, max_d = -1;
+    int m = -1;
     float e = -1;
     int n_threads = -1;
     int errors = 0;
@@ -66,16 +66,17 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
-            case 'd': {
-                ssize_t d = std::stoll(optarg);
-                if (d <= 0L) {
-                    std::cerr << "max dim must be a positive integer number, but was " << optarg << std::endl;
-                    ++errors;
-                } else {
-                    max_d = d;
-                }
-                break;
-            }
+//            case 'd': {
+//                #define MPI_ON
+//                ssize_t d = std::stoll(optarg);
+//                if (d <= 0L) {
+//                    std::cerr << "max dim must be a positive integer number, but was " << optarg << std::endl;
+//                    ++errors;
+//                } else {
+//                    max_d = d;
+//                }
+//                break;
+//            }
             case 'e': {
                 float epsilon = std::stof(optarg);
                 if (epsilon <= 0.0f) {
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
     int mpi_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-    blocks_index = mpi_rank;
+    block_index = mpi_rank;
     blocks_no = mpi_size;
     std::cout << "Hello with rank " << mpi_rank << std::endl;
 #endif

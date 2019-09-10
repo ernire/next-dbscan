@@ -745,7 +745,7 @@ namespace nextdbscan {
                 vv_cell_dim_max[t][l].reserve(v_no_cells[t][l] * max_d);
             }
         }
-#pragma omp parallel
+        #pragma omp parallel
         {
             uint tid = omp_get_thread_num();
             float *coord_min, *coord_max;

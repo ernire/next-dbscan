@@ -44,8 +44,8 @@ public:
 
     int load_next_samples(std::unique_ptr<float[]> &v_samples);
 
-    static void get_blocks_meta(std::vector<uint> &v_sizes, std::vector<uint> &v_offsets, uint number_of_samples,
-            uint number_of_blocks);
+    static void get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
+            uint number_of_samples, uint number_of_blocks);
 
     static uint get_block_size(uint block_index, uint number_of_samples, uint number_of_blocks);
 

@@ -7,16 +7,17 @@
 #include <vector>
 #include "next_io.h"
 
-void next_io::get_blocks_meta(std::vector<uint> &v_sizes, std::vector<uint> &v_offsets, const uint number_of_samples,
-        const uint number_of_blocks) {
+void next_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
+        uint number_of_samples, uint number_of_blocks) {
     uint total_size = 0;
-    v_sizes.clear();
-    v_offsets.clear();
+//    v_sizes.clear();
+//    v_offsets.clear();
     for (uint i = 0; i < number_of_blocks; ++i) {
         uint size = get_block_size(i, number_of_samples, number_of_blocks);
-        std::cout << "size: " << size << std::endl;
-        v_offsets.push_back(total_size);
-        v_sizes.push_back(size);
+        v_offsets[i] = total_size;
+        v_sizes[i] = size;
+//        v_offsets.push_back(total_size);
+//        v_sizes.push_back(size);
         total_size += size;
     }
 }
@@ -46,12 +47,13 @@ void next_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_sampl
 //    std::cout << "feature_no: " << feature_no << std::endl;
     unread_samples = get_block_size(block_index, sample_no, block_no);
     block_sample_offset = get_block_start_offset(block_index, sample_no, block_no);
-    std::cout << "block start offset: " << block_sample_offset << std::endl;
+//    std::cout << "block start offset: " << block_sample_offset << std::endl;
 //    begin_offset = (block_start_offset + 2) * sizeof(int);
     feature_offset = 2 * sizeof(int) + (block_sample_offset * feature_no * sizeof(float));
 //    v_samples.reserve(sample_no * feature_no);
 //    std::cout << "feature offset: " << feature_offset << std::endl;
-    v_samples = std::make_unique<float[]>(sample_no * feature_no);
+    std::cout << "Setting array size: " << (unread_samples * feature_no) << std::endl;
+    v_samples = std::make_unique<float[]>(unread_samples * feature_no);
 //    std::fill(features, features + sample_no * feature_no, UNDEFINED_VALUE);
 }
 
@@ -64,8 +66,8 @@ int next_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
 //    std::cout << "unread samples: " << unread_samples << " : buffer : " << buffer_samples << std::endl;
     uint bytes_read = 0;
     ifs.seekg(feature_offset, std::istream::beg);
-    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
-    if (!ifs.read((char *) &v_samples[block_sample_offset * feature_no], buffer_samples * feature_no * sizeof(float))) {
+//    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
+    if (!ifs.read((char *) &v_samples[0/*block_sample_offset * feature_no*/], buffer_samples * feature_no * sizeof(float))) {
         if (ifs.bad()) {
             std::cerr << "Error: " << strerror(errno);
         } else {
