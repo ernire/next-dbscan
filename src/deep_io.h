@@ -2,8 +2,8 @@
 // Created by Ernir Erlingsson on 2.9.2019.
 //
 
-#ifndef NEXT_DBSCAN_NEXT_IO_H
-#define NEXT_DBSCAN_NEXT_IO_H
+#ifndef NEXT_DBSCAN_DEEP_IO_H
+#define NEXT_DBSCAN_DEEP_IO_H
 
 #include <istream>
 #include <memory>
@@ -11,7 +11,7 @@
 const int UNDEFINED_VALUE = -1;
 typedef unsigned int uint;
 
-class next_io {
+class deep_io {
 private:
     const char *file;
     const uint block_no, block_index, max_samples_per_batch;
@@ -26,10 +26,10 @@ public:
     uint sample_no, feature_no, sample_read_no;
     uint block_sample_offset;
 
-    next_io(char *file, uint number_of_blocks, uint block_index) : next_io(file, number_of_blocks, block_index,
+    deep_io(char *file, uint number_of_blocks, uint block_index) : deep_io(file, number_of_blocks, block_index,
             INT32_MAX) {}
 
-    next_io(const char *file, uint number_of_blocks, uint block_index, uint max_samples_per_batch)
+    deep_io(const char *file, uint number_of_blocks, uint block_index, uint max_samples_per_batch)
             : file(file), block_no(number_of_blocks), block_index(block_index),
               max_samples_per_batch(max_samples_per_batch) {
 //        features = nullptr;
@@ -40,7 +40,7 @@ public:
         block_sample_offset = 0;
     }
 
-    ~next_io() = default;
+    ~deep_io() = default;
 
     int load_next_samples(std::unique_ptr<float[]> &v_samples);
 
@@ -54,4 +54,4 @@ public:
 
 std::streampos get_file_size(const char *filePath);
 
-#endif //NEXT_DBSCAN_NEXT_IO_H
+#endif //NEXT_DBSCAN_DEEP_IO_H

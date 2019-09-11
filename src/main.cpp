@@ -28,7 +28,7 @@ SOFTWARE.
 #include <fstream>
 #include <iomanip>
 #include "nextdbscan.h"
-#include "next_io.h"
+#include "deep_io.h"
 #ifdef MPI_ON
 #include <mpi.h>
 #endif

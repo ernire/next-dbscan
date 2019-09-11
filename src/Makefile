@@ -6,7 +6,7 @@ CCFLAGS2=-DMPI_ON=1
 CCDEBUG=-O1 -pg -g
 CCRUN=-O3
 
-SRC=main.cpp nextdbscan_new.cpp next_io.cpp
+SRC=main.cpp nextdbscan_new.cpp deep_io.cpp
 OUT=dbscan
 OBJ=dbscan.o
 

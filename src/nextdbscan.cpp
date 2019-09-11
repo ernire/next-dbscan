@@ -37,7 +37,7 @@ SOFTWARE.
 #include <omp.h>
 #include <mpi.h>
 #include "nextdbscan.h"
-#include "next_io.h"
+#include "deep_io.h"
 
 namespace nextdbscan {
 

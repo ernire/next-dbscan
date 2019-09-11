@@ -5,9 +5,9 @@
 #include <iostream>
 #include <cstring>
 #include <vector>
-#include "next_io.h"
+#include "deep_io.h"
 
-void next_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
+void deep_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
         uint number_of_samples, uint number_of_blocks) {
     uint total_size = 0;
 //    v_sizes.clear();
@@ -22,7 +22,7 @@ void next_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<
     }
 }
 
-uint next_io::get_block_size(const uint block_index, const uint number_of_samples, const uint number_of_blocks) {
+uint deep_io::get_block_size(const uint block_index, const uint number_of_samples, const uint number_of_blocks) {
     uint block = (number_of_samples / number_of_blocks);
     uint reserve = number_of_samples % number_of_blocks;
     // Some processes will need one more sample if the data size does not fit completely with the number of processes
@@ -32,7 +32,7 @@ uint next_io::get_block_size(const uint block_index, const uint number_of_sample
     return block;
 }
 
-uint next_io::get_block_start_offset(const uint part_index, const uint number_of_samples, const uint number_of_blocks) {
+uint deep_io::get_block_start_offset(const uint part_index, const uint number_of_samples, const uint number_of_blocks) {
     int offset = 0;
     for (int i = 0; i < part_index; i++) {
         offset += get_block_size(part_index, number_of_samples, number_of_blocks);
@@ -40,7 +40,7 @@ uint next_io::get_block_start_offset(const uint part_index, const uint number_of
     return offset;
 }
 
-void next_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_samples) {
+void deep_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_samples) {
     is.read((char *) &sample_no, sizeof(int));
     is.read((char *) &feature_no, sizeof(int));
 //    std::cout << "sample_no: " << sample_no << std::endl;
@@ -52,12 +52,12 @@ void next_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_sampl
     feature_offset = 2 * sizeof(int) + (block_sample_offset * feature_no * sizeof(float));
 //    v_samples.reserve(sample_no * feature_no);
 //    std::cout << "feature offset: " << feature_offset << std::endl;
-    std::cout << "Setting array size: " << (unread_samples * feature_no) << std::endl;
-    v_samples = std::make_unique<float[]>(unread_samples * feature_no);
+    std::cout << "Setting array size: " << (sample_no * feature_no) << std::endl;
+    v_samples = std::make_unique<float[]>(sample_no * feature_no);
 //    std::fill(features, features + sample_no * feature_no, UNDEFINED_VALUE);
 }
 
-int next_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
+int deep_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
     std::ifstream ifs(file, std::ios::in | std::ifstream::binary);
     if (!is_initialized) {
         load_meta_data(ifs, v_samples);
@@ -67,7 +67,7 @@ int next_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
     uint bytes_read = 0;
     ifs.seekg(feature_offset, std::istream::beg);
 //    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
-    if (!ifs.read((char *) &v_samples[0/*block_sample_offset * feature_no*/], buffer_samples * feature_no * sizeof(float))) {
+    if (!ifs.read((char *) &v_samples[block_sample_offset * feature_no], buffer_samples * feature_no * sizeof(float))) {
         if (ifs.bad()) {
             std::cerr << "Error: " << strerror(errno);
         } else {
