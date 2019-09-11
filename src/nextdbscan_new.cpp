@@ -36,7 +36,7 @@ SOFTWARE.
 #include <iterator>
 #include <omp.h>
 #include <numeric>
-//#define MPI_ON
+#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -1451,7 +1451,15 @@ namespace nextdbscan {
         }
     }
 
-    void print_array(std::string name, float *arr, const uint max_d) {
+    void print_array(const std::string name, int *arr, const uint max_d) {
+        std::cout << name << ": ";
+        for (int i = 0; i < max_d; ++i) {
+            std::cout << arr[i] << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    void print_array(const std::string name, float *arr, const uint max_d) {
         std::cout << name << ": ";
         for (int i = 0; i < max_d; ++i) {
             std::cout << arr[i] << " ";
@@ -1685,6 +1693,19 @@ namespace nextdbscan {
             }
         }
     }
+
+    /*
+        std::vector<std::vector<std::vector<uint>>> vvv_index_maps(n_cores);
+        std::vector<std::vector<std::vector<ull>>> vvv_value_maps(n_cores);
+        std::vector<std::vector<std::vector<uint>>> vvv_cell_begins(n_cores);
+        std::vector<std::vector<std::vector<uint>>> vvv_cell_ns(n_cores);
+        std::vector<std::vector<std::vector<float>>> vvv_min_cell_dims(n_cores);
+        std::vector<std::vector<std::vector<float>>> vvv_max_cell_dims(n_cores);
+         // Tree
+        std::vector<std::vector<struct_label>> vv_labels(n_cores);
+        std::vector<std::vector<bool>> vv_is_core(n_cores);
+        std::vector<std::vector<uint>> vv_point_nns(n_cores);
+     */
 #ifdef MPI_ON
     void mpi_coord_merge(std::unique_ptr<float[]> &v_coords, const uint blocks_no, const uint total_samples,
             const uint max_d) {
@@ -1699,6 +1720,174 @@ namespace nextdbscan {
         }
         MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_coords[0], &v_block_sizes_in_bytes[0],
                 &v_block_offsets_in_bytes[0], MPI_FLOAT, MPI_COMM_WORLD);
+    }
+
+    void mpi_gather_float_array(std::vector<std::vector<std::vector<float>>> &vvv_array, std::vector<float> &v_payload_ull,
+            const int *transmit_offsets, const int *transmit_sizes, const int t_offset, const int n_threads,
+            const int max_levels, const int mpi_index, const int n_cores) {
+        uint index = transmit_offsets[mpi_index];
+        for (uint t = t_offset; t < (n_threads + t_offset); ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (auto &val : vvv_array[t][l]) {
+                    v_payload_ull[index++] = val;
+                }
+            }
+        }
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_payload_ull[0], transmit_sizes,
+                transmit_offsets, MPI_FLOAT, MPI_COMM_WORLD);
+        index = 0;
+        for (uint t = 0; t < n_cores; ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (uint s = 0; s < vvv_array[t][l].size(); ++s) {
+                    vvv_array[t][l][s] = v_payload_ull[index++];
+                }
+            }
+        }
+    }
+
+    void mpi_gather_ull_array(std::vector<std::vector<std::vector<ull>>> &vvv_array, std::vector<ull> &v_payload_ull,
+            const int *transmit_offsets, const int *transmit_sizes, const int t_offset, const int n_threads,
+            const int max_levels, const int mpi_index, const int n_cores) {
+        uint index = transmit_offsets[mpi_index];
+        for (uint t = t_offset; t < (n_threads + t_offset); ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (auto &val : vvv_array[t][l]) {
+                    v_payload_ull[index++] = val;
+                }
+            }
+        }
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_payload_ull[0], transmit_sizes,
+                transmit_offsets, MPI_LONG_LONG, MPI_COMM_WORLD);
+        index = 0;
+        for (uint t = 0; t < n_cores; ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (uint s = 0; s < vvv_array[t][l].size(); ++s) {
+                    vvv_array[t][l][s] = v_payload_ull[index++];
+                }
+            }
+        }
+    }
+
+    void mpi_gather_int_array(std::vector<std::vector<std::vector<uint>>> &vvv_array, std::vector<int> &v_payload_int,
+            const int *transmit_offsets, const int *transmit_sizes, const int t_offset, const int n_threads,
+            const int max_levels, const int mpi_index, const int n_cores) {
+        uint index = transmit_offsets[mpi_index];
+        for (uint t = t_offset; t < (n_threads + t_offset); ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (auto &val : vvv_array[t][l]) {
+                    v_payload_int[index++] = val;
+                }
+            }
+        }
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_payload_int[0], transmit_sizes,
+                transmit_offsets, MPI_INT, MPI_COMM_WORLD);
+        index = 0;
+        for (uint t = 0; t < n_cores; ++t) {
+            for (uint l = 0; l < max_levels; ++l) {
+                for (uint s = 0; s < vvv_array[t][l].size(); ++s) {
+                    vvv_array[t][l][s] = v_payload_int[index++];
+                }
+            }
+        }
+    }
+
+    void mpi_cell_trees_merge(std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
+            std::vector<std::vector<std::vector<ull>>> &vvv_value_maps,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_begins,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns,
+            std::vector<std::vector<std::vector<float>>> &vvv_min_cell_dims,
+            std::vector<std::vector<std::vector<float>>> &vvv_max_cell_dims,
+            std::vector<std::vector<uint>> &vv_point_nns,
+            const int mpi_index, const int mpi_size, const uint n_threads, const int n_cores, const int max_levels) {
+        int total_levels = n_cores * max_levels;
+        int core_level_elems[total_levels];
+        std::fill(core_level_elems, core_level_elems + total_levels, 0);
+        uint t_offset = mpi_index * n_threads;
+        // TODO omp
+        uint index = t_offset * max_levels;
+        for (uint t = t_offset; t < (n_threads + t_offset); ++t) {
+            for (uint l = 0; l < max_levels; ++l, ++index) {
+                core_level_elems[index] += vvv_cell_ns[t][l].size();
+            }
+        }
+//        print_array("elem cnts before: ", core_level_elems, total_levels);
+        MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, core_level_elems, total_levels / mpi_size,
+                MPI_INT, MPI_COMM_WORLD);
+//        print_array("elem cnts after: ", core_level_elems, total_levels);
+//        MPI_Barrier(MPI_COMM_WORLD);
+        index = 0;
+        for (uint t = 0; t < n_cores; ++t) {
+            for (uint l = 0; l < max_levels; ++l, ++index) {
+                vvv_index_maps[t][l].resize(core_level_elems[index]);
+                vvv_value_maps[t][l].resize(core_level_elems[index]);
+                vvv_cell_begins[t][l].resize(core_level_elems[index]);
+                vvv_cell_ns[t][l].resize(core_level_elems[index]);
+                vvv_min_cell_dims[t][l].resize(core_level_elems[index]);
+                vvv_max_cell_dims[t][l].resize(core_level_elems[index]);
+                vvv_max_cell_dims[t][l].resize(core_level_elems[index]);
+            }
+        }
+        int elem_sum = 0;
+        for (int i = 0; i < n_cores; ++i) {
+            elem_sum += core_level_elems[i];
+        }
+        std::cout << "elem sum: " << elem_sum << std::endl;
+        std::vector<int> v_payload_int;
+        v_payload_int.reserve(elem_sum);
+        std::vector<float> v_payload_float;
+        v_payload_float.reserve(elem_sum);
+        std::vector<ull> v_payload_ull;
+        v_payload_ull.reserve(elem_sum);
+        int transmit_sizes[mpi_size];
+        index = 0;
+        int size_check = 0;
+        int size = 0;
+        for (int c = 0; c < n_cores; ++c) {
+            if (c > 0 && c % n_threads == 0) {
+                transmit_sizes[index] = size;
+                size = 0;
+            }
+            size += core_level_elems[c];
+            size_check += size;
+        }
+        assert(size_check == elem_sum);
+        transmit_sizes[index] = size;
+        int transmit_offsets[mpi_size];
+        transmit_offsets[0] = 0;
+        for (int m = 1; m < mpi_size; ++m) {
+            transmit_offsets[m] = transmit_offsets[m-1] + transmit_sizes[m-1];
+        }
+        print_array("transmit sizes: ", transmit_sizes, mpi_size);
+        print_array("transmit offsets: ", transmit_offsets, mpi_size);
+        // TODO OMP
+        std::cout << "Transmitting index maps" << std::endl;
+        mpi_gather_int_array(vvv_index_maps, v_payload_int, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmitting cell begin maps" << std::endl;
+        mpi_gather_int_array(vvv_cell_begins, v_payload_int, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmitting cell ns maps" << std::endl;
+        mpi_gather_int_array(vvv_cell_ns, v_payload_int, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmitting min cell maps" << std::endl;
+        mpi_gather_float_array(vvv_min_cell_dims, v_payload_float, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmitting max cell maps" << std::endl;
+        mpi_gather_float_array(vvv_max_cell_dims, v_payload_float, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmitting value maps" << std::endl;
+        mpi_gather_ull_array(vvv_value_maps, v_payload_ull, transmit_offsets, transmit_sizes, t_offset,
+                n_threads, max_levels, mpi_index, n_cores);
+        std::cout << "Transmit done" << std::endl;
+//        index = transmit_offsets[mpi_index];
+//        for (uint t = t_offset; t < (n_threads + t_offset); ++t) {
+//            for (uint l = 0; l < max_levels; ++l) {
+//                vvv_index_maps[t][l]
+//                for (auto &val : vvv_index_maps[t][l]) {
+//                    v_payload_int[index++] = val;
+//                }
+//            }
+//        }
     }
 #endif
 
@@ -1794,6 +1983,13 @@ namespace nextdbscan {
             vv_leaf_cell_nns[tid].resize(leaf_cell_no, 0);
             vv_cell_types[tid].resize(leaf_cell_no, NC);
 
+#ifdef MPI_ON
+#pragma omp single
+            {
+                mpi_cell_trees_merge(vvv_index_maps, vvv_value_maps, vvv_cell_begins, vvv_cell_ns, vvv_min_cell_dims,
+                        vvv_max_cell_dims, vv_point_nns, block_index, blocks_no, n_threads, n_cores,max_levels);
+            }
+#endif
             for (uint l = 0; l < max_levels; ++l) {
                 process_cell_tree_level(v_p_coords[tid], vvv_cell_begins[tid], vvv_cell_ns[tid], vvv_index_maps[tid],
                         vv_leaf_cell_nns[tid], vv_cell_types[tid], vv_is_core[tid], vv_point_nns[tid], stacks3[tid],
