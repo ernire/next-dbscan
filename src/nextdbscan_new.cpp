@@ -36,7 +36,7 @@ SOFTWARE.
 #include <iterator>
 #include <omp.h>
 #include <numeric>
-#define MPI_ON
+//#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -243,18 +243,18 @@ namespace nextdbscan {
         std::cout << "TYPE AC: " << types[TYPE_AC] << std::endl;
     }
 
-    inline void update_to_ac(std::vector<std::pair<ull, uint>> &v_index_maps, std::vector<uint> &v_cell_ns,
-            std::vector<uint> &v_cell_begin, bool_vector &is_core, std::vector<uint8_t> &v_types, const uint c) {
+    inline void update_to_ac(std::vector<uint> &v_index_maps, std::vector<uint> &v_cell_ns,
+            std::vector<uint> &v_cell_begin, std::vector<bool> &is_core, std::vector<uint8_t> &v_types, const uint c) {
         v_types[c] = AC;
         uint begin = v_cell_begin[c];
         for (uint j = 0; j < v_cell_ns[c]; ++j) {
-            is_core[v_index_maps[begin + j].second] = true;
+            is_core[v_index_maps[begin + j]] = true;
         }
     }
 
-    void update_type(std::vector<std::pair<ull, uint>> &v_index_maps, std::vector<uint> &v_cell_ns,
+    void update_type(std::vector<uint> &v_index_maps, std::vector<uint> &v_cell_ns,
             std::vector<uint> &v_cell_begin, std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps,
-            bool_vector &is_core, std::vector<uint8_t> &v_types, const uint c, const uint m) {
+            std::vector<bool> &is_core, std::vector<uint8_t> &v_types, const uint c, const uint m) {
         if (v_types[c] == AC) {
             return;
         }
@@ -265,7 +265,7 @@ namespace nextdbscan {
         bool some_cores = false;
         uint begin = v_cell_begin[c];
         for (uint j = 0; j < v_cell_ns[c]; ++j) {
-            uint p = v_index_maps[begin + j].second;
+            uint p = v_index_maps[begin + j];
             if (is_core[p])
                 continue;
             if (v_cell_nps[c] + v_point_nps[p] >= m) {
@@ -282,19 +282,23 @@ namespace nextdbscan {
         }
     }
 
-    bool fill_range_table_multi(float *v_coords, std::vector<std::pair<ull, uint>> **vv_index_map,
-            std::vector<uint> **v_cell_ns_level, bool_vector &v_range_table, const uint c1,
-            const uint begin1, const uint c2, const uint begin2, const uint max_d, const float e2, const uint t1, const uint t2) noexcept {
-        uint size1 = v_cell_ns_level[t1][0][c1];
-        uint size2 = v_cell_ns_level[t2][0][c2];
+    bool fill_range_table_mult(std::unique_ptr<float*[]> &v_p_coords,
+            std::vector<std::vector<std::vector<uint>>> &vvv_index_map,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns_level, std::vector<bool> &v_range_table,
+            const uint c1, const uint begin1, const uint c2, const uint begin2, const uint max_d, const float e2,
+            const uint t1, const uint t2) noexcept {
+        uint size1 = vvv_cell_ns_level[t1][0][c1];
+        uint size2 = vvv_cell_ns_level[t2][0][c2];
         bool all_in_range = true;
         uint index = 0;
-        v_range_table.fill(size1 * size2, false);
+        std::fill(v_range_table.begin(), v_range_table.begin()+(size1*size2), false);
+//        std::fill(v_range_table.begin(), std::next(v_range_table.begin(), size1*size2), false);
+//        v_range_table.fill(size1 * size2, false);
         for (uint k1 = 0; k1 < size1; ++k1) {
-            uint p1 = vv_index_map[t1][0][begin1 + k1].second;
+            uint p1 = vvv_index_map[t1][0][begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-                uint p2 = vv_index_map[t2][0][begin2 + k2].second;
-                if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
+                uint p2 = vvv_index_map[t2][0][begin2 + k2];
+                if (dist_leq(&v_p_coords[t1][p1 * max_d], &v_p_coords[t2][p2 * max_d], max_d, e2)) {
                     v_range_table[index] = true;
                 } else {
                     all_in_range = false;
@@ -304,146 +308,46 @@ namespace nextdbscan {
         return all_in_range;
     }
 
-    void update_cell_pair_nn_multi(std::vector<std::pair<ull, uint>> **vv_index_map, std::vector<uint> **vv_cell_ns,
-            std::vector<uint> &v_point_nps, bool_vector &v_range_table, bool_vector &is_core, const uint c1,
+    void update_cell_pair_nn_multi(std::vector<std::vector<std::vector<uint>>> &vvv_index_map,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns,
+            std::vector<std::vector<uint>> &v_point_nps, std::vector<bool> &v_range_table,
+            std::vector<std::vector<bool>> &vv_is_core, const uint c1,
             const uint begin1, const uint c2, const uint begin2, const uint t1, const uint t2) {
-        uint size1 = vv_cell_ns[t1][0][c1];
-        uint size2 = vv_cell_ns[t2][0][c2];
+        uint size1 = vvv_cell_ns[t1][0][c1];
+        uint size2 = vvv_cell_ns[t2][0][c2];
         uint index = 0;
         for (uint k1 = 0; k1 < size1; ++k1) {
-            uint p1 = vv_index_map[t1][0][begin1 + k1].second;
+            uint p1 = vvv_index_map[t1][0][begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-                uint p2 = vv_index_map[t2][0][begin2 + k2].second;
-                if (is_core[p1] && is_core[p2])
+                uint p2 = vvv_index_map[t2][0][begin2 + k2];
+                if (vv_is_core[t1][p1] && vv_is_core[t2][p2])
                     continue;
                 if (v_range_table[index]) {
-                    if (!is_core[p1]) {
+                    if (!vv_is_core[t1][p1]) {
                         #pragma omp atomic
-                        ++v_point_nps[p1];
+                        ++v_point_nps[t1][p1];
                     }
-                    if (!is_core[p2]) {
+                    if (!vv_is_core[t2][p2]) {
                         #pragma omp atomic
-                        ++v_point_nps[p2];
+                        ++v_point_nps[t2][p2];
                     }
                 }
             }
         }
     }
 
-    void process_cell_tree_mult(struct_label **p_labels, float *v_coords, std::vector<std::pair<ull, uint>> **vv_index_maps,
-            std::vector<uint> &v_point_nps, std::vector<cell_meta_5> &stack, std::vector<uint> **vv_cell_begin,
-            std::vector<uint> **vv_cell_ns, std::vector<float> **vv_cell_dim_min, std::vector<float> **vv_cell_dim_max,
-            omp_lock_t *mutexes, bool_vector &v_range_table, std::vector<uint> *v_cell_nps, bool_vector &is_core,
-            std::vector<uint8_t> *v_types, const uint max_d, const float e, const uint m, const bool is_nn) noexcept {
-        const auto e2 = e * e;
-        while (!stack.empty()) {
-            uint l = stack.back().l;
-            uint t1 = stack.back().t1;
-            uint c1 = stack.back().c1;
-            uint t2 = stack.back().t2;
-            uint c2 = stack.back().c2;
-            stack.pop_back();
-            if (vv_index_maps[t1][l][c1].first != vv_index_maps[t2][l][c2].first &&
-                !is_in_reach(&vv_cell_dim_min[t1][l][c1 * max_d], &vv_cell_dim_max[t1][l][c1 * max_d],
-                    &vv_cell_dim_min[t2][l][c2 * max_d], &vv_cell_dim_max[t2][l][c2 * max_d], max_d, e)) {
-                continue;
-            }
-            uint begin1 = vv_cell_begin[t1][l][c1];
-            uint begin2 = vv_cell_begin[t2][l][c2];
-            if (l == 0) {
-                if (is_nn) {
-                    if (v_types[t1][c1] != AC || v_types[t2][c2] != AC) {
-                        bool all_range_check = fill_range_table_multi(v_coords, vv_index_maps, vv_cell_ns,
-                                v_range_table, c1, begin1, c2, begin2,
-                                max_d, e2, t1, t2);
-                        if (all_range_check) {
-                            if (v_types[t1][c1] != AC) {
-                                #pragma omp atomic
-                                v_cell_nps[t1][c1] += vv_cell_ns[t2][0][c2];
-                            }
-                            if (v_types[t2][c2] != AC) {
-                                #pragma omp atomic
-                                v_cell_nps[t2][c2] += vv_cell_ns[t1][0][c1];
-                            }
-                        } else {
-                            update_cell_pair_nn_multi(vv_index_maps, vv_cell_ns, v_point_nps, v_range_table,
-                                    is_core, c1, begin1, c2, begin2, t1, t2);
-                        }
-                        update_type(vv_index_maps[t1][0], vv_cell_ns[t1][0], vv_cell_begin[t1][0], v_cell_nps[t1],
-                                v_point_nps, is_core, v_types[t1], c1, m);
-                        update_type(vv_index_maps[t2][0], vv_cell_ns[t2][0], vv_cell_begin[t2][0], v_cell_nps[t2],
-                                v_point_nps, is_core, v_types[t2], c2, m);
-                    }
-                } else {
-                    if (v_types[t1][c1] != NC || v_types[t2][c2] != NC) {
-                        if (v_types[t1][c1] != NC && v_types[t2][c2] != NC) {
-                            for (uint k1 = 0; k1 < vv_cell_ns[t1][l][c1]; ++k1) {
-                                uint p1 = vv_index_maps[t1][l][begin1 + k1].second;
-                                for (uint k2 = 0; k2 < vv_cell_ns[t2][l][c2]; ++k2) {
-                                    uint p2 = vv_index_maps[t2][l][begin2 + k2].second;
-                                    if (is_core[p1] && is_core[p2] && dist_leq(&v_coords[p1 * max_d],
-                                                &v_coords[p2 * max_d], max_d, e2)) {
-                                        // TODO make thread safe
-                                        auto p1_label = get_label(p_labels[p1]);
-                                        auto p2_label = get_label(p_labels[p2]);
-                                        if (p1_label != p2_label) {
-                                            set_lower_label(p1_label, p2_label);
-                                        }
-                                        k2 = vv_cell_ns[t2][l][c2];
-                                        k1 = vv_cell_ns[t1][l][c1];
-                                    }
-                                }
-                            }
-                        } else {
-                            for (uint k1 = 0; k1 < vv_cell_ns[t1][l][c1]; ++k1) {
-                                uint p1 = vv_index_maps[t1][l][begin1 + k1].second;
-                                auto p1_label = get_label(p_labels[p1]);
-                                if (!is_core[p1] && p1_label->label != UNASSIGNED)
-                                    continue;
-                                for (uint k2 = 0; k2 < vv_cell_ns[t2][l][c2]; ++k2) {
-                                    uint p2 = vv_index_maps[t2][l][begin2 + k2].second;
-                                    auto p2_label = get_label(p_labels[p2]);
-                                    if (!is_core[p2] && p2_label->label != UNASSIGNED)
-                                        continue;
-                                    if (is_core[p1]) {
-                                        if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                            p_labels[p2]->label_p = p1_label;
-                                        }
-                                    } else if (is_core[p2]) {
-                                        if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                            p_labels[p1]->label_p = p2_label;
-                                            k2 = vv_cell_ns[t2][l][c2];
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                for (uint k1 = 0; k1 < vv_cell_ns[t1][l][c1]; ++k1) {
-                    uint c1_next = vv_index_maps[t1][l][begin1 + k1].second;
-                    for (uint j = 0; j < vv_cell_ns[t2][l][c2]; ++j) {
-                        uint c2_next = vv_index_maps[t2][l][begin2 + j].second;
-                        stack.emplace_back(l - 1, c1_next, c2_next, t1, t2);
-                    }
-                }
-            }
-        }
-    }
-
-    bool fill_range_table(float *v_coords, std::vector<std::pair<ull, uint>> &v_index_map_level,
-            std::vector<uint> &v_cell_ns_level, bool_vector &v_range_table, const uint c1,
+    bool fill_range_table(float *v_coords, std::vector<uint> &v_index_map_level,
+            std::vector<uint> &v_cell_ns_level, std::vector<bool> &v_range_table, const uint c1,
             const uint begin1, const uint c2, const uint begin2, const uint max_d, const float e2) noexcept {
         uint size1 = v_cell_ns_level[c1];
         uint size2 = v_cell_ns_level[c2];
         bool all_in_range = true;
         uint index = 0;
-        v_range_table.fill(size1 * size2, false);
+        std::fill(v_range_table.begin(), v_range_table.begin()+(size1*size2), false);
         for (uint k1 = 0; k1 < size1; ++k1) {
-            uint p1 = v_index_map_level[begin1 + k1].second;
+            uint p1 = v_index_map_level[begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-                uint p2 = v_index_map_level[begin2 + k2].second;
+                uint p2 = v_index_map_level[begin2 + k2];
                 if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
                     v_range_table[index] = true;
                 } else {
@@ -454,23 +358,23 @@ namespace nextdbscan {
         return all_in_range;
     }
 
-    void update_cell_pair_nn(std::vector<std::pair<ull, uint>> &v_index_map_level, std::vector<uint> &v_cell_ns_level,
-            std::vector<uint> &v_point_nps, bool_vector &v_range_table, bool_vector &is_core, const uint c1,
-            const uint begin1, const uint c2, const uint begin2) {
+    void update_cell_pair_nn(std::vector<uint> &v_index_map_level, std::vector<uint> &v_cell_ns_level,
+            std::vector<uint> &v_point_nps, std::vector<bool> &v_range_table, std::vector<bool> &v_is_core,
+            const uint c1, const uint begin1, const uint c2, const uint begin2) {
         uint size1 = v_cell_ns_level[c1];
         uint size2 = v_cell_ns_level[c2];
         uint index = 0;
         for (uint k1 = 0; k1 < size1; ++k1) {
-            uint p1 = v_index_map_level[begin1 + k1].second;
+            uint p1 = v_index_map_level[begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-                uint p2 = v_index_map_level[begin2 + k2].second;
-                if (is_core[p1] && is_core[p2])
+                uint p2 = v_index_map_level[begin2 + k2];
+                if (v_is_core[p1] && v_is_core[p2])
                     continue;
                 if (v_range_table[index]) {
-                    if (!is_core[p1]) {
+                    if (!v_is_core[p1]) {
                         ++v_point_nps[p1];
                     }
-                    if (!is_core[p2]) {
+                    if (!v_is_core[p2]) {
                         ++v_point_nps[p2];
                     }
                 }
@@ -478,9 +382,10 @@ namespace nextdbscan {
         }
     }
 
-    void process_pair_nn(float *v_coords, std::vector<std::pair<ull, uint>> *vv_index_maps,
-            std::vector<uint> &v_point_nps, std::vector<uint> *vv_cell_begin, std::vector<uint> *vv_cell_ns,
-            bool_vector &v_range_table, std::vector<uint> &v_cell_nps, bool_vector &is_core,
+    void process_pair_nn(float *v_coords, std::vector<std::vector<uint>> &vv_index_maps,
+            std::vector<uint> &v_point_nps, std::vector<std::vector<uint>> &vv_cell_begin,
+            std::vector<std::vector<uint>> &vv_cell_ns,
+            std::vector<bool> &v_range_table, std::vector<uint> &v_cell_nps, std::vector<bool> &v_is_core,
             std::vector<uint8_t> &v_types, const uint max_d, const float e2, const uint m, const uint l,
             const uint c1, const uint begin1, const uint c2, const uint begin2) {
         bool all_range_check = fill_range_table(v_coords, vv_index_maps[l], vv_cell_ns[l],
@@ -495,481 +400,15 @@ namespace nextdbscan {
             }
         } else {
             update_cell_pair_nn(vv_index_maps[l], vv_cell_ns[l], v_point_nps, v_range_table,
-                    is_core, c1, begin1, c2, begin2);
+                    v_is_core, c1, begin1, c2, begin2);
         }
+        // TODO make sure something changed so that updating is necessary
         update_type(vv_index_maps[0], vv_cell_ns[0], vv_cell_begin[0], v_cell_nps,
-                v_point_nps, is_core, v_types, c1, m);
+                v_point_nps, v_is_core, v_types, c1, m);
         update_type(vv_index_maps[0], vv_cell_ns[0], vv_cell_begin[0], v_cell_nps,
-                v_point_nps, is_core, v_types, c2, m);
+                v_point_nps, v_is_core, v_types, c2, m);
     }
 
-    /*
-    void process_cell_tree_single(struct_label **p_labels, float *v_coords, std::vector<std::pair<ull, uint>> *vv_index_maps,
-            std::vector<uint> &v_point_nps, std::vector<cell_meta_3> &stack, std::vector<uint> *vv_cell_begin,
-            std::vector<uint> *vv_cell_ns, std::vector<uint> &v_no_cells, std::vector<float> *vv_cell_dim_min,
-            std::vector<float> *vv_cell_dim_max, bool_vector &v_range_table, std::vector<uint> &v_cell_nps,
-            bool_vector &is_core, std::vector<uint8_t> &v_types, const uint max_levels,
-            const uint max_d, const float e, const uint m, const bool is_nn) noexcept {
-        const auto e2 = e * e;
-        for (uint level = 1; level < max_levels; ++level) {
-            for (uint i = 0; i < v_no_cells[level]; ++i) {
-                uint begin = vv_cell_begin[level][i];
-                for (uint c1 = 0; c1 < vv_cell_ns[level][i]; ++c1) {
-                    for (uint c2 = c1 + 1; c2 < vv_cell_ns[level][i]; ++c2) {
-                        stack.emplace_back(level - 1, vv_index_maps[level][begin + c1].second,
-                                vv_index_maps[level][begin + c2].second);
-                    }
-                }
-                while (!stack.empty()) {
-                    uint l = stack.back().l;
-                    uint c1 = stack.back().c1;
-                    uint c2 = stack.back().c2;
-                    stack.pop_back();
-                    if (!is_in_reach(&vv_cell_dim_min[l][c1 * max_d], &vv_cell_dim_max[l][c1 * max_d],
-                            &vv_cell_dim_min[l][c2 * max_d], &vv_cell_dim_max[l][c2 * max_d], max_d, e)) {
-                        continue;
-                    }
-                    uint begin1 = vv_cell_begin[l][c1];
-                    uint begin2 = vv_cell_begin[l][c2];
-                    if (l == 0) {
-                        if (is_nn) {
-                            if (v_types[c1] != AC || v_types[c2] != AC) {
-                                process_pair_nn(v_coords, vv_index_maps, v_point_nps, vv_cell_begin, vv_cell_ns,
-                                        v_range_table, v_cell_nps, is_core, v_types, max_d, e2, m, l, c1, begin1, c2,
-                                        begin2);
-                            }
-                        } else {
-                            if (v_types[c1] != NC || v_types[c2] != NC) {
-//                                assert(!(v_types[c1] == NC && v_types[c2] == NC));
-                                if (v_types[c1] != NC && v_types[c2] != NC) {
-                                    for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                                        uint p1 = vv_index_maps[l][begin1 + k1].second;
-                                        for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                                            uint p2 = vv_index_maps[l][begin2 + k2].second;
-                                            if (is_core[p1] && is_core[p2] && dist_leq(&v_coords[p1 * max_d],
-                                                    &v_coords[p2 * max_d], max_d, e2)) {
-                                                auto p1_label = get_label(p_labels[p1]);
-                                                auto p2_label = get_label(p_labels[p2]);
-                                                if (p1_label != p2_label)
-                                                    set_lower_label(p1_label, p2_label);
-                                                k2 = vv_cell_ns[l][c2];
-                                                k1 = vv_cell_ns[l][c1];
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                                        uint p1 = vv_index_maps[l][begin1 + k1].second;
-                                        auto p1_label = get_label(p_labels[p1]);
-                                        if (!is_core[p1] && p1_label->label != UNASSIGNED)
-                                            continue;
-                                        for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                                            uint p2 = vv_index_maps[l][begin2 + k2].second;
-                                            auto p2_label = get_label(p_labels[p2]);
-                                            if (!is_core[p2] && p2_label->label != UNASSIGNED)
-                                                continue;
-                                            if (is_core[p1]) {
-                                                if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                                    p_labels[p2]->label_p = p1_label;
-                                                }
-                                            } else if (is_core[p2]) {
-                                                if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                                    p_labels[p1]->label_p = p2_label;
-                                                    k2 = vv_cell_ns[l][c2];
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                            uint c1_next = vv_index_maps[l][begin1 + k1].second;
-                            for (uint j = 0; j < vv_cell_ns[l][c2]; ++j) {
-                                uint c2_next = vv_index_maps[l][begin2 + j].second;
-                                stack.emplace_back(l - 1, c1_next, c2_next);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-     */
-
-    /*
-    void process_cell_tree(struct_label **p_labels, float *v_coords, bool_vector &is_core,
-            std::vector<std::pair<ull, uint>> **vv_index_maps, std::vector<uint> **vv_cell_begin, std::vector<uint>
-                    **vv_cell_ns, std::vector<uint> *v_no_cells, std::vector<float> **vv_cell_dim_min,
-                    std::vector<float> **vv_cell_dim_max, bool_vector **vv_range_tables, const uint max_levels,
-                    const uint max_d, const uint n_threads, const float e, const uint n, const uint m) noexcept {
-        std::vector<uint> v_point_nps(n, 0);
-        std::vector<cell_meta_3> stacks3[n_threads];
-        std::vector<cell_meta_5> stacks5[n_threads];
-        std::vector<uint8_t> vv_cell_types[n_threads];
-        std::vector<uint> vv_cell_nps[n_threads];
-        omp_lock_t mutexes[n_threads];
-        for (uint t = 0; t < n_threads; t++) {
-            stacks3[t].reserve(v_no_cells[t][0] * (uint) std::max((int) logf(max_d), 1));
-            stacks5[t].reserve(v_no_cells[t][0] * (uint) std::max((int) logf(max_d), 1));
-            vv_cell_nps[t].reserve(v_no_cells[t][0]);
-            vv_cell_types[t].reserve(v_no_cells[t][0]);
-            std::fill(vv_cell_types[t].begin(), vv_cell_types[t].begin() + v_no_cells[t][0], NC);
-        }
-        uint max_points_in_cell = 0;
-        #pragma omp parallel for reduction(max: max_points_in_cell)
-        for (uint t = 0; t < n_threads; ++t) {
-            for (uint i = 0; i < v_no_cells[t][0]; ++i) {
-                uint size = vv_cell_ns[t][0][i];
-                if (size > max_points_in_cell) {
-                    max_points_in_cell = size;
-                }
-            }
-        }
-        // collect all the multiple thread pairs
-        std::vector<cell_meta_5> v_t_pair_tasks;
-        if (n_threads > 1) {
-            v_t_pair_tasks.reserve(n_threads * n_threads);
-            // TODO find the right balance
-            uint level = max_levels - 3;
-            for (uint t1 = 0; t1 < n_threads; ++t1) {
-                omp_init_lock(&mutexes[t1]);
-                for (uint t2 = t1 + 1; t2 < n_threads; ++t2) {
-                    for (uint i = 0; i < v_no_cells[t1][level]; ++i) {
-                        for (uint j = 0; j < v_no_cells[t2][level]; ++j) {
-                            v_t_pair_tasks.emplace_back(level, i, j, t1, t2);
-                        }
-                    }
-                }
-            }
-            std::cout << "pair tasks: " << v_t_pair_tasks.size() << std::endl;
-        }
-        #pragma omp parallel default(shared)
-        {
-            uint tid = omp_get_thread_num();
-            for (uint i = 0; i < v_no_cells[tid][0]; ++i) {
-                vv_cell_nps[tid][i] = vv_cell_ns[tid][0][i];
-                if (vv_cell_nps[tid][i] >= m) {
-                    vv_cell_types[tid][i] = AC;
-                    uint begin = vv_cell_begin[tid][0][i];
-                    for (uint j = 0; j < vv_cell_ns[tid][0][i]; ++j) {
-                        is_core[vv_index_maps[tid][0][begin + j].second] = true;
-                    }
-                }
-            }
-            process_cell_tree_single(p_labels, v_coords, vv_index_maps[tid], v_point_nps, stacks3[tid], vv_cell_begin[tid],
-                    vv_cell_ns[tid], v_no_cells[tid], vv_cell_dim_min[tid], vv_cell_dim_max[tid],
-                    *vv_range_tables[tid], vv_cell_nps[tid], is_core, vv_cell_types[tid], max_levels, max_d, e, m, true);
-            #pragma omp barrier
-            #pragma omp for schedule(dynamic)
-            for (uint i = 0; i < v_t_pair_tasks.size(); ++i) {
-                stacks5[tid].push_back(v_t_pair_tasks[i]);
-                process_cell_tree_mult(p_labels, v_coords, vv_index_maps, v_point_nps, stacks5[tid],
-                        vv_cell_begin, vv_cell_ns, vv_cell_dim_min, vv_cell_dim_max, mutexes, *vv_range_tables[tid],
-                        vv_cell_nps, is_core, vv_cell_types, max_d, e, m, true);
-            }
-            for (uint i = 0; i < v_no_cells[tid][0]; ++i) {
-                if (vv_cell_types[tid][i] == NC) {
-                    continue;
-                } else {
-                    uint begin = vv_cell_begin[tid][0][i];
-                    uint i_core = 0;
-//                    uint p;
-                    if (vv_cell_types[tid][i] == SC) {
-                        // find a core
-                        for (uint j = 0; j < vv_cell_ns[tid][0][i]; ++j) {
-                            uint p = vv_index_maps[tid][0][begin+j].second;
-                            if (is_core[p]) {
-                                i_core = p;
-                                j = vv_cell_ns[tid][0][i];
-                            }
-                        }
-                    } else {
-                        i_core = vv_index_maps[tid][0][begin].second;
-                    }
-                    p_labels[i_core]->label = i_core;
-                    for (uint j = 0; j < vv_cell_ns[tid][0][i]; ++j) {
-                        uint p = vv_index_maps[tid][0][begin+j].second;
-                        if (p == i_core)
-                            continue;
-                        p_labels[p]->label_p = p_labels[i_core];
-                    }
-                }
-            }
-            process_cell_tree_single(p_labels, v_coords, vv_index_maps[tid], v_point_nps, stacks3[tid], vv_cell_begin[tid],
-                    vv_cell_ns[tid], v_no_cells[tid], vv_cell_dim_min[tid], vv_cell_dim_max[tid],
-                    *vv_range_tables[tid], vv_cell_nps[tid], is_core, vv_cell_types[tid], max_levels, max_d, e, m, false);
-            #pragma omp barrier
-            #pragma omp for schedule(dynamic)
-            for (uint i = 0; i < v_t_pair_tasks.size(); ++i) {
-                stacks5[tid].push_back(v_t_pair_tasks[i]);
-                process_cell_tree_mult(p_labels, v_coords, vv_index_maps, v_point_nps, stacks5[tid],
-                        vv_cell_begin, vv_cell_ns, vv_cell_dim_min, vv_cell_dim_max, mutexes, *vv_range_tables[tid],
-                        vv_cell_nps, is_core, vv_cell_types, max_d, e, m, false);
-            }
-        }
-    }
-     */
-
-    /*
-    int
-    index_points(float *v_coords, std::vector<uint> **vv_index_maps, std::vector<ull> **vv_value_maps, std::vector<std::pair<ull, uint>> **vv_old,
-            std::vector<uint> **vv_cell_begin, std::vector<uint> **vv_cell_ns, std::vector<uint> *v_no_cells,
-            bool_vector **vv_range_tables, const uint max_d, const uint n, const uint n_threads,
-            const float e_inner) noexcept {
-        auto t0_1 = std::chrono::high_resolution_clock::now();
-        float max_limit = INT32_MIN;
-        std::vector<float> min_bounds(max_d);
-        std::vector<float> max_bounds(max_d);
-        std::vector<std::pair<ull, uint>> vv_buckets[n_threads];
-        std::vector<uint> vv_index_buckets[n_threads];
-        std::vector<ull> vv_value_buckets[n_threads];
-        calc_bounds(v_coords, n, min_bounds, max_bounds, max_d);
-        for (uint d = 0; d < max_d; d++) {
-            if (max_bounds[d] - min_bounds[d] > max_limit)
-                max_limit = max_bounds[d] - min_bounds[d];
-        }
-        int max_levels = static_cast<int>(ceilf(logf(max_limit / e_inner) / logf(2))) + 1;
-        std::vector<float> v_eps_levels(max_levels);
-
-        auto **dims_mult = new ull *[max_levels];
-        for (int i = 0; i < max_levels; i++) {
-            v_eps_levels[i] = (e_inner * powf(2, i));
-            dims_mult[i] = new ull[max_d];
-            calc_dims_mult(dims_mult[i], max_d, min_bounds, max_bounds, v_eps_levels[i]);
-        }
-
-        for (uint t = 0; t < n_threads; ++t) {
-            vv_old[t] = new std::vector<std::pair<ull, uint>>[max_levels];
-            vv_index_maps[t] = new std::vector<uint>[max_levels];
-            vv_value_maps[t] = new std::vector<ull>[max_levels];
-            vv_cell_begin[t] = new std::vector<uint>[max_levels];
-            vv_cell_ns[t] = new std::vector<uint>[max_levels];
-            v_no_cells[t].reserve(max_levels);
-        }
-        auto t0_2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
-            std::cout << "Init "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t0_2 - t0_1).count()
-                      << " milliseconds\n";
-        }
-        uint max_points_in_cell = 0;
-        auto t1 = std::chrono::high_resolution_clock::now();
-        #pragma omp parallel default(shared) reduction(max: max_points_in_cell)
-        {
-            const uint tid = omp_get_thread_num();
-            for (int level = 0; level < max_levels; ++level) {
-                std::cout << "Start level: " << level << std::endl;
-                uint mem_reserve = level == 0 ? n / n_threads + 1 : v_no_cells[tid][level - 1];
-                vv_old[tid][level].reserve(mem_reserve);
-                vv_index_maps[tid][level].reserve(mem_reserve);
-                vv_value_maps[tid][level].reserve(mem_reserve);
-                vv_cell_begin[tid][level].reserve(mem_reserve);
-                std::cout << "CHECKPOINT #1" << std::endl;
-                if (level == 0) {
-                    #pragma omp for schedule(static)
-                    for (uint i = 0; i < n; ++i) {
-                        ull cell_index = get_cell_index(&v_coords[i*max_d], min_bounds, dims_mult[0], max_d,
-                                v_eps_levels[0]);
-                        vv_index_maps[tid][0].push_back(i);
-                        vv_value_maps[tid][0].push_back(cell_index);
-                        vv_old[tid][0].emplace_back(cell_index, i);
-                    }
-                } else {
-                    for (uint i = 0; i < v_no_cells[tid][level-1]; ++i) {
-                        int level_mod = 1;
-                        uint p_index = i;
-                        while (level - level_mod >= 0) {
-//                            p_index = vv_index_maps[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]].second;
-                            p_index = vv_value_maps[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]];
-                            assert(p_index == vv_old[tid][level - level_mod][vv_cell_begin[tid][level-level_mod][p_index]].second);
-                            ++level_mod;
-                        }
-                        ull cell_index = get_cell_index(&v_coords[p_index * max_d], min_bounds, dims_mult[level],
-                                max_d, v_eps_levels[level]);
-                        vv_index_maps[tid][level].push_back(i);
-                        vv_value_maps[tid][level].push_back(cell_index);
-                        vv_old[tid][level].emplace_back(cell_index, i);
-                    }
-                }
-                std::cout << "CHECKPOINT #2" << std::endl;
-                std::sort(vv_old[tid][level].begin(), vv_old[tid][level].end());
-                std::sort(vv_index_maps[tid][level].begin(), vv_index_maps[tid][level].end(),
-                        [&] (const auto &i1, const auto &i2) -> bool {
-                    return vv_value_maps[tid][level][i1] < vv_value_maps[tid][level][i2];
-                    /*
-                    if (i1 < i2) {
-                        uint val = vv_value_maps[tid][level][i1];
-                        vv_value_maps[tid][level][i1] = vv_value_maps[tid][level][i2];
-                        vv_value_maps[tid][level][i2] = val;
-//                        std::swap(vv_value_maps[tid][level][i1], vv_value_maps[tid][level][i2]);
-                        return true;
-                    }
-                    return false;
-                     */
-    /*
-                });
-
-                std::cout << "CHECKPOINT #3" << std::endl;
-                assert(vv_old[tid][level].size() == vv_index_maps[tid][level].size());
-                for (int i = 0; i < vv_old[tid][level].size(); ++i ) {
-                    assert(vv_old[tid][level][i].first == vv_index_maps[tid][level][i]);
-                    assert(vv_old[tid][level][i].second == vv_value_maps[tid][level][i]);
-                }
-                std::cout << "CHECKPOINT #4" << std::endl;
-                if (level == 0 && n_threads > 1) {
-                    vv_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
-                    vv_index_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
-                    vv_value_buckets[tid].reserve(vv_index_maps[tid][level].size() + 1);
-                    #pragma omp barrier
-                    uint chunk = vv_index_maps[0][level].size() / n_threads;
-                    for (uint t = 0; t < n_threads; ++t) {
-                        auto begin = std::next(vv_old[t][level].begin(), (tid *chunk));
-                        auto end = std::next(vv_old[t][level].begin(), ((tid+1) *chunk));
-                        if (tid == n_threads-1)
-                            end = vv_old[t][level].end();
-                        vv_buckets[tid].insert(vv_buckets[tid].end(), begin, end);
-                        auto begin1 = std::next(vv_index_maps[t][level].begin(), (tid *chunk));
-                        auto end1 = std::next(vv_index_maps[t][level].begin(), ((tid+1) *chunk));
-                        if (tid == n_threads-1)
-                            end1 = vv_index_maps[t][level].end();
-                        vv_index_buckets[tid].insert(vv_index_buckets[tid].end(), begin1, end1);
-                        auto begin2 = std::next(vv_value_maps[t][level].begin(), (tid *chunk));
-                        auto end2 = std::next(vv_value_maps[t][level].begin(), ((tid+1) *chunk));
-                        if (tid == n_threads-1)
-                            end2 = vv_value_maps[t][level].end();
-                        vv_value_buckets[tid].insert(vv_value_buckets[tid].end(), begin2, end2);
-                    }
-                    std::sort(vv_buckets[tid].begin(), vv_buckets[tid].end());
-                    vv_old[tid][level].clear();
-                    vv_old[tid][level].shrink_to_fit();
-                    vv_index_maps[tid][level].clear();
-                    vv_index_maps[tid][level].shrink_to_fit();
-                    vv_value_maps[tid][level].clear();
-                    vv_value_maps[tid][level].shrink_to_fit();
-                    #pragma omp barrier
-                    vv_old[tid][level] = std::move(vv_buckets[tid]);
-                    vv_index_maps[tid][level] = std::move(vv_index_buckets[tid]);
-                    vv_value_maps[tid][level] = std::move(vv_value_buckets[tid]);
-                    vv_buckets[tid] = std::vector<std::pair<ull, uint>>();
-                    vv_index_buckets[tid] = std::vector<uint>();
-                    vv_value_buckets[tid] = std::vector<ull>();
-//                    median_split(vv_index_maps, v_local_medians, v_merged_medians, vv_median_indexes,
-//                            vv_median_buckets, level, n_threads, tid);
-                }
-                std::cout << "CHECKPOINT #5" << std::endl;
-                /*
-                ull last_index = vv_index_maps[tid][level][0].first;
-                vv_cell_begin[tid][level].push_back(0);
-                for (uint i = 1; i < vv_index_maps[tid][level].size(); i++) {
-                    if (vv_index_maps[tid][level][i].first != last_index) {
-                        vv_cell_begin[tid][level].push_back(i);
-                        last_index = vv_index_maps[tid][level][i].first;
-                    }
-                }
-                 */
-    /*
-
-                ull last_index = vv_value_maps[tid][level][vv_index_maps[tid][level][0]];
-                vv_cell_begin[tid][level].push_back(0);
-                for (uint i = 1; i < vv_value_maps[tid][level].size(); i++) {
-                    if (vv_value_maps[tid][level][vv_index_maps[tid][level][i]] != last_index) {
-                        vv_cell_begin[tid][level].push_back(i);
-                        last_index = vv_value_maps[tid][level][vv_index_maps[tid][level][i]];
-                    }
-                }
-//                #pragma omp critical
-//                std::cout << "Thread " << tid << " with " << vv_cell_begin[tid][level].size() << " cells at level " << level
-//                          << std::endl;
-                v_no_cells[tid][level] = vv_cell_begin[tid][level].size();
-                vv_cell_ns[tid][level].reserve(v_no_cells[tid][level]);
-                for (uint i = 0; i < v_no_cells[tid][level]; i++) {
-                    uint begin = vv_cell_begin[tid][level][i];
-                    uint end = (i == (v_no_cells[tid][level] - 1)) ? vv_index_maps[tid][level].size()
-                                                                   : vv_cell_begin[tid][level][i + 1];
-                    vv_cell_ns[tid][level][i] = end - begin;
-                }
-                if (level == 0) {
-                    for (int i = 0; i < v_no_cells[tid][level]; ++i) {
-                        if (vv_cell_ns[tid][level][i] > max_points_in_cell)
-                            max_points_in_cell = vv_cell_ns[tid][level][i];
-                    }
-                }
-            }
-        }
-        auto t2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
-            std::cout << "level " << " "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
-        std::cout << "max points: " << max_points_in_cell << std::endl;
-        for (uint t = 0; t < n_threads; ++t) {
-            vv_range_tables[t] = new bool_vector(max_points_in_cell * max_points_in_cell);
-        }
-        return max_levels;
-    }
-     */
-
-    /*
-    void nextDBSCAN(struct_label **p_labels, float *v_coords, const uint m, const float e, const uint n,
-            const uint max_d, bool_vector &is_core, uint n_threads) noexcept {
-
-        std::cout << "Starting nextDBSCAN: " << n << " " << max_d << std::endl;
-
-        auto t1 = std::chrono::high_resolution_clock::now();
-
-        float e_inner = (e / 2);
-        auto **vv_old = new std::vector<std::pair<ull, uint>> *[n_threads];
-        auto **vv_index_maps = new std::vector<uint> *[n_threads];
-        auto **vv_value_maps = new std::vector<ull> *[n_threads];
-        auto **vv_cell_begin = new std::vector<uint> *[n_threads];
-        auto **vv_cell_ns = new std::vector<uint> *[n_threads];
-        auto v_no_cells = new std::vector<uint>[n_threads];
-        auto **vv_cell_dims_min = new std::vector<float> *[n_threads];
-        auto **vv_cell_dims_max = new std::vector<float> *[n_threads];
-        auto **vv_range_tables = new bool_vector *[n_threads];
-        auto t2 = std::chrono::high_resolution_clock::now();
-            if (!g_quiet) {
-            std::cout << "Memory and init: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
-
-        t1 = std::chrono::high_resolution_clock::now();
-//        int max_levels = index_points(v_coords, vv_index_maps, vv_value_maps, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells,
-//                vv_range_tables, max_d, n, n_threads, e_inner);
-        int max_levels = build_grid_cell_tree(v_coords, vv_index_maps, vv_value_maps, vv_old, vv_cell_begin, vv_cell_ns,
-                v_no_cells, vv_range_tables, max_d, n, n_threads, e_inner);
-        t2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
-            std::cout << "Point indexing: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
-
-        t1 = std::chrono::high_resolution_clock::now();
-//        calculate_cell_boundaries(v_coords, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
-//                vv_cell_dims_max, max_levels, max_d, n_threads);
-        t2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
-            std::cout << "Calculate boundaries: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
-
-        t1 = std::chrono::high_resolution_clock::now();
-//        process_cell_tree(p_labels, v_coords, is_core, vv_old, vv_cell_begin, vv_cell_ns, v_no_cells, vv_cell_dims_min,
-//                vv_cell_dims_max, vv_range_tables, max_levels, max_d, n_threads, e, n, m);
-        t2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet) {
-            std::cout << "tree process: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
-                      << " milliseconds\n";
-        }
-    }
-*/
     void read_input_txt(const std::string &in_file, float *v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
@@ -1324,13 +763,12 @@ namespace nextdbscan {
         return new_cells;
     }
 
-
     void process_cell_tree_level(float *v_coords, std::vector<std::vector<uint>> &vv_cell_begins,
             std::vector<std::vector<uint>> &vv_cell_ns, std::vector<std::vector<uint>> &vv_index_maps,
             std::vector<uint> &v_leaf_cell_nns, std::vector<uint8_t > &v_cell_types, std::vector<bool> &v_is_core,
-            std::vector<uint> &v_point_nns, std::vector<cell_meta_3> &stack3,
+            std::vector<uint> &v_point_nns, std::vector<cell_meta_3> &stack3, std::vector<bool> &v_range_table,
             std::vector<std::vector<float>> &vv_min_cell_dims, std::vector<std::vector<float>> &vv_max_cell_dims,
-            uint level, const uint m, const uint max_d, const float e, const float e2) noexcept {
+            uint level, const uint m, const uint max_d, const float e, const float e2, const bool is_nn) noexcept {
         if (level == 0) {
             for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
                 uint begin = vv_cell_begins[0][i];
@@ -1338,11 +776,11 @@ namespace nextdbscan {
 //                std::cout << "Checkpoint #1 : " << i << " : " << begin << ", " << size << std::endl;
                 v_leaf_cell_nns[i] = size;
                 // TODO tmp, remove when cells are properly used
-                for (uint j = 0; j < size; ++j) {
-                    uint index = vv_index_maps[0][begin + j];
+//                for (uint j = 0; j < size; ++j) {
+//                    uint index = vv_index_maps[0][begin + j];
 //                    std::cout << "index1 : " << index << std::endl;
-                    v_point_nns[index] = size;
-                }
+//                    v_point_nns[index] = size;
+//                }
                 if (size >= m) {
                     v_cell_types[i] = AC;
                     for (uint j = 0; j < size; ++j) {
@@ -1363,6 +801,7 @@ namespace nextdbscan {
                     stack3.emplace_back(level-1, c1_index, vv_index_maps[level][begin+c2]);
                 }
             }
+            uint cnt = 0;
             while (!stack3.empty()) {
                 uint l = stack3.back().l;
                 uint c1 = stack3.back().c1;
@@ -1378,6 +817,14 @@ namespace nextdbscan {
                 uint begin2 = vv_cell_begins[l][c2];
 //                std::cout << "Checkpoint #5 : " << std::endl;
                 if (l == 0) {
+                    if (is_nn) {
+                        if (v_cell_types[c1] != AC || v_cell_types[c2] != AC) {
+                            process_pair_nn(v_coords, vv_index_maps, v_point_nns, vv_cell_begins, vv_cell_ns,
+                                    v_range_table, v_leaf_cell_nns, v_is_core, v_cell_types, max_d, e2, m, l,
+                                    c1, begin1, c2, begin2);
+                        }
+                    }
+                    /*
 //                    std::cout << "Checkpoint #6 : " << std::endl;
                     for (uint k1 = 0; k1 < vv_cell_ns[0][c1]; ++k1) {
                         //                    assert((begin1+k1) < vv_index_values[0].size());
@@ -1399,9 +846,9 @@ namespace nextdbscan {
                             }
                         }
                     }
-//                    std::cout << "Checkpoint #7 : " << std::endl;
+                     */
+
                 } else {
-//                    std::cout << "Checkpoint #8 : " << std::endl;
                     for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
                         uint c1_next = vv_index_maps[l][begin1 + k1];
                         for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
@@ -1409,7 +856,6 @@ namespace nextdbscan {
                             stack3.emplace_back(l - 1, c1_next, c2_next);
                         }
                     }
-//                    std::cout << "Checkpoint #9 : " << std::endl;
                 }
             }
         }
@@ -1421,10 +867,12 @@ namespace nextdbscan {
             std::vector<std::vector<std::vector<uint>>> &vvv_cell_begins,
             std::vector<std::vector<std::vector<float>>> &vvv_min_cell_dims,
             std::vector<std::vector<std::vector<float>>> &vvv_max_cell_dims,
+            std::vector<std::vector<uint>> &vv_leaf_cell_nns, std::vector<std::vector<uint8_t>> &vv_cell_types,
+            std::vector<bool> v_range_table,
             std::vector<std::vector<bool>> &vv_is_core, std::vector<std::vector<uint>> &vv_point_nns,
             std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns, std::vector<cell_meta_5> &stack5,
             const int tid, const uint level, const uint max_d, const uint m, const uint n_cores, const float e,
-            const float e2) noexcept {
+            const float e2, const bool is_nn) noexcept {
         int tree_cnt = 0;
         int job_cnt = 0;
         for (uint t1 = 0; t1 < n_cores; ++t1) {
@@ -1460,6 +908,44 @@ namespace nextdbscan {
             uint begin1 = vvv_cell_begins[t1][l][c1];
             uint begin2 = vvv_cell_begins[t2][l][c2];
             if (l == 0) {
+                if (is_nn) {
+                    if (vv_cell_types[t1][c1] != AC || vv_cell_types[t2][c2] != AC) {
+//                        bool all_range_check = c1_val == c2_val;
+//                        if (!all_range_check) {
+//                            all_range_check = fill_range_table_mult(v_p_coords,
+//                                    vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
+//                                    e2, t1, t2);
+//                        }
+                        bool all_range_check = fill_range_table_mult(v_p_coords,
+                                vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
+                                e2, t1, t2);
+//                        if (c1_val == c2_val) {
+//                            assert(all_range_check);
+//                        }
+//                        if (all_range_check)
+//                            assert(c1_val == c2_val);
+
+                        if (all_range_check) {
+                            if (vv_cell_types[t1][c1] != AC) {
+                                #pragma omp atomic
+                                vv_leaf_cell_nns[t1][c1] += vvv_cell_ns[t2][0][c2];
+                            }
+                            if (vv_cell_types[t2][c2] != AC) {
+                                #pragma omp atomic
+                                vv_leaf_cell_nns[t2][c2] += vvv_cell_ns[t1][0][c1];
+                            }
+                        } else {
+                            update_cell_pair_nn_multi(vvv_index_maps, vvv_cell_ns, vv_point_nns, v_range_table,
+                                    vv_is_core, c1, begin1, c2, begin2, t1, t2);
+                        }
+                        // TODO only update when you must
+                        update_type(vvv_index_maps[t1][0], vvv_cell_ns[t1][0], vvv_cell_begins[t1][0],
+                                vv_leaf_cell_nns[t1], vv_point_nns[t1], vv_is_core[t1], vv_cell_types[t1], c1, m);
+                        update_type(vvv_index_maps[t2][0], vvv_cell_ns[t2][0], vvv_cell_begins[t2][0], vv_leaf_cell_nns[t2],
+                                vv_point_nns[t2], vv_is_core[t2], vv_cell_types[t2], c2, m);
+                    }
+                }
+                /*
                 for (uint k1 = 0; k1 < vvv_cell_ns[t1][0][c1]; ++k1) {
                     for (uint k2 = 0; k2 < vvv_cell_ns[t2][0][c2]; ++k2) {
                         uint index1 = vvv_index_maps[t1][0][begin1 + k1];
@@ -1478,6 +964,7 @@ namespace nextdbscan {
                         }
                     }
                 }
+                 */
             } else {
                 for (uint k1 = 0; k1 < vvv_cell_ns[t1][l][c1]; ++k1) {
                     uint c1_next = vvv_index_maps[t1][l][begin1 + k1];
@@ -1619,7 +1106,7 @@ namespace nextdbscan {
         for (int t = 0; t < n_cores; ++t) {
             for (int l = 0; l < max_levels; ++l) {
                 for (int i = 0; i < vvv_cell_tree[t][l].size(); ++i) {
-                    assert(v_payload[index] != (T)-1);
+//                    assert(v_payload[index] != (T)-1);
                     vvv_cell_tree[t][l][i] = v_payload[index++];
                 }
             }
@@ -1653,8 +1140,8 @@ namespace nextdbscan {
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, core_level_elems, total_levels / mpi_size,
                 MPI_INT, MPI_COMM_WORLD);
-//        if (mpi_index == 0)
-//        print_array("elem cnts after: ", core_level_elems, total_levels);
+        if (mpi_index == 0)
+            print_array("elem cnts after: ", core_level_elems, total_levels);
         index = 0;
         for (uint t = 0; t < n_cores; ++t) {
             for (uint l = 0; l < max_levels; ++l, ++index) {
@@ -1673,18 +1160,31 @@ namespace nextdbscan {
             vvv_max_cell_dims[t][max_levels-1].resize(max_d);
         }
 
-        mpi_gather_cell_tree(vvv_index_maps, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_INT, false);
-        MPI_Barrier(MPI_COMM_WORLD);
-        mpi_gather_cell_tree(vvv_value_maps, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_LONG_LONG, false);
-        MPI_Barrier(MPI_COMM_WORLD);
-        mpi_gather_cell_tree(vvv_cell_begins, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_INT, false);
-        MPI_Barrier(MPI_COMM_WORLD);
-        mpi_gather_cell_tree(vvv_cell_ns, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_INT, false);
-        MPI_Barrier(MPI_COMM_WORLD);
-        mpi_gather_cell_tree(vvv_min_cell_dims, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_FLOAT, false);
-        MPI_Barrier(MPI_COMM_WORLD);
+//        MPI_Barrier(MPI_COMM_WORLD);
+        mpi_gather_cell_tree(vvv_index_maps, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_UNSIGNED, false);
+        if (mpi_index == 0)
+            std::cout << "#1" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+        mpi_gather_cell_tree(vvv_value_maps, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_UNSIGNED_LONG_LONG, false);
+        if (mpi_index == 0)
+            std::cout << "#2" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+        mpi_gather_cell_tree(vvv_cell_begins, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_UNSIGNED, false);
+        if (mpi_index == 0)
+            std::cout << "#3" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+        mpi_gather_cell_tree(vvv_cell_ns, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_UNSIGNED, false);
+        if (mpi_index == 0)
+            std::cout << "#4" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+        mpi_gather_cell_tree(vvv_min_cell_dims, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_FLOAT, true);
+        if (mpi_index == 0)
+            std::cout << "#5" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
         mpi_gather_cell_tree(vvv_max_cell_dims, n_cores, max_levels, mpi_size, n_threads, mpi_index, MPI_FLOAT, false);
-        MPI_Barrier(MPI_COMM_WORLD);
+        if (mpi_index == 0)
+            std::cout << "#6" << std::endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
     }
 #endif
 
@@ -1739,11 +1239,12 @@ namespace nextdbscan {
         std::vector<std::vector<struct_label>> vv_labels(n_cores);
         std::vector<std::vector<bool>> vv_is_core(n_cores);
         std::vector<std::vector<uint>> vv_point_nns(n_cores);
+        std::vector<std::vector<uint>> vv_leaf_cell_nns(n_cores);
+        std::vector<std::vector<uint8_t>> vv_cell_types(n_cores);
         // TODO this can be n_threads
         std::vector<cell_meta_3> stacks3[n_cores];
         std::vector<cell_meta_5> stacks5[n_cores];
-        std::vector<std::vector<uint>> vv_leaf_cell_nns(n_cores);
-        std::vector<std::vector<uint8_t>> vv_cell_types(n_cores);
+        std::vector<std::vector<bool>> vv_range_tables(n_cores);
 
         auto v_p_coords = std::make_unique<float*[]>(n_cores);
         for (uint t = 0; t < n_cores; ++t) {
@@ -1759,6 +1260,8 @@ namespace nextdbscan {
             if (block_index == 0)
                 std::cout << "t: " << t << " pointer: " << v_omp_block_offsets[t]*max_d << std::endl;
             v_p_coords[t] = &v_coords[v_omp_block_offsets[t]*max_d];
+            // TODO tmp
+            vv_range_tables[t].resize(total_samples*total_samples);
         }
         auto time3 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && block_index == 0) {
@@ -1802,16 +1305,23 @@ namespace nextdbscan {
             }
 #endif
             vv_leaf_cell_nns[tid].resize(vvv_cell_ns[tid][0].size(), 0);
+            assert(vv_leaf_cell_nns[tid][1] == 0);
             vv_cell_types[tid].resize(vvv_cell_ns[tid][0].size(), NC);
+            // TODO tmp
+
             for (uint l = 0; l < max_levels; ++l) {
                 process_cell_tree_level(v_p_coords[tid], vvv_cell_begins[tid], vvv_cell_ns[tid], vvv_index_maps[tid],
                         vv_leaf_cell_nns[tid], vv_cell_types[tid], vv_is_core[tid], vv_point_nns[tid], stacks3[tid],
-                        vvv_min_cell_dims[tid], vvv_max_cell_dims[tid], l, m, max_d, e, e2);
+                        vv_range_tables[tid], vvv_min_cell_dims[tid], vvv_max_cell_dims[tid], l, m, max_d, e, e2, true);
             }
-            #pragma omp barrier
-            process_cell_tree_pairs(v_p_coords, vvv_index_maps, vvv_value_maps, vvv_cell_begins,
-                    vvv_min_cell_dims, vvv_max_cell_dims, vv_is_core, vv_point_nns, vvv_cell_ns, stacks5[tid], tid,
-                    max_levels - 2, max_d, m, n_cores, e, e2);
+            if (n_cores > 1) {
+                std::cout << "Process the pairs" << std::endl;
+                #pragma omp barrier
+                process_cell_tree_pairs(v_p_coords, vvv_index_maps, vvv_value_maps, vvv_cell_begins,
+                        vvv_min_cell_dims, vvv_max_cell_dims, vv_leaf_cell_nns, vv_cell_types, vv_range_tables[tid],
+                        vv_is_core, vv_point_nns, vvv_cell_ns, stacks5[tid], tid,
+                        max_levels - 2, max_d, m, n_cores, e, e2, true);
+            }
         // end of parallel region
         }
 #ifdef MPI_ON
