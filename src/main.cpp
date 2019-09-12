@@ -145,20 +145,22 @@ int main(int argc, char** argv) {
 #endif
 
     nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, block_index, blocks_no);
-    std::cout << std::endl;
-    std::cout << "Estimated clusters: " << results.clusters << std::endl;
-    std::cout << "Core Points: " << results.core_count << std::endl;
-    std::cout << "Noise Points: " << results.noise << std::endl;
+    if (block_index == 0) {
+        std::cout << std::endl;
+        std::cout << "Estimated clusters: " << results.clusters << std::endl;
+        std::cout << "Core Points: " << results.core_count << std::endl;
+        std::cout << "Noise Points: " << results.noise << std::endl;
 
-    if (output_file.length() > 0) {
-        std::cout << "Writing output to " << output_file << std::endl;
-        std::ofstream os(output_file);
-        for (auto &c : *results.point_clusters) {
-            os << c << '\n';
+        if (output_file.length() > 0) {
+            std::cout << "Writing output to " << output_file << std::endl;
+            std::ofstream os(output_file);
+            for (auto &c : *results.point_clusters) {
+                os << c << '\n';
+            }
+            os.flush();
+            os.close();
+            std::cout << "Done!" << std::endl;
         }
-        os.flush();
-        os.close();
-        std::cout << "Done!" << std::endl;
     }
 #ifdef MPI_ON
     MPI_Finalize();
