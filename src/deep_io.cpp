@@ -35,7 +35,7 @@ uint deep_io::get_block_size(const uint block_index, const uint number_of_sample
 uint deep_io::get_block_start_offset(const uint part_index, const uint number_of_samples, const uint number_of_blocks) {
     int offset = 0;
     for (int i = 0; i < part_index; i++) {
-        offset += get_block_size(part_index, number_of_samples, number_of_blocks);
+        offset += get_block_size(i, number_of_samples, number_of_blocks);
     }
     return offset;
 }
