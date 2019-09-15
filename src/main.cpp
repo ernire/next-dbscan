@@ -128,11 +128,10 @@ int main(int argc, char** argv) {
     } else if (n_threads == -1) {
         n_threads = 1;
     }
-    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
-        << n_threads << " file:" << input_file << std::endl;
 
     uint block_index = 0;
     uint blocks_no = 1;
+
 #ifdef MPI_ON
     MPI_Init(&argc, &argv);
     int mpi_size;
@@ -141,9 +140,11 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     block_index = mpi_rank;
     blocks_no = mpi_size;
-    std::cout << "Hello with rank " << mpi_rank << std::endl;
 #endif
 
+    if (block_index == 0)
+        std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
+                  << n_threads << " file:" << input_file << std::endl;
     nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, block_index, blocks_no);
     if (block_index == 0) {
         std::cout << std::endl;

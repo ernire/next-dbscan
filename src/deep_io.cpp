@@ -52,9 +52,9 @@ void deep_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_sampl
     feature_offset = 2 * sizeof(int) + (block_sample_offset * feature_no * sizeof(float));
 //    v_samples.reserve(sample_no * feature_no);
 //    std::cout << "feature offset: " << feature_offset << std::endl;
-    std::cout << "Setting array size: " << (sample_no * feature_no) << std::endl;
+//    std::cout << "Setting array size: " << (sample_no * feature_no) << std::endl;
     v_samples = std::make_unique<float[]>(sample_no * feature_no);
-//    std::fill(features, features + sample_no * feature_no, UNDEFINED_VALUE);
+//    std::fill(&v_samples[0], &v_samples[0] + sample_no * feature_no, UNDEFINED_VALUE);
 }
 
 int deep_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {

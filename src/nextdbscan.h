@@ -18,8 +18,8 @@ namespace nextdbscan {
             float e,
             unsigned int n_threads,
             const std::string &in_file,
-            unsigned int block_index,
-            unsigned int blocks_no) noexcept;
+            unsigned int node_index,
+            unsigned int nodes_no) noexcept;
 
 };
 
