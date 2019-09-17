@@ -11,8 +11,8 @@ namespace nextdbscan {
         unsigned int noise;
         unsigned int core_count;
         unsigned int n;
+        // TODO avoid memory leak
         int *point_clusters;
-//        std::vector<int> point_clusters;
     };
 
     result start(

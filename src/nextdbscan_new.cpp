@@ -1,6 +1,3 @@
-//
-// Created by Ernir Erlingsson (ernire@gmail.com, ernire.org) on 20.2.2019.
-//
 /*
 Copyright (c) 2019, Ernir Erlingsson
 
@@ -62,7 +59,7 @@ namespace nextdbscan {
 //    typedef unsigned int ull;
 // TODO Detect when this is necessary during indexing
 //    typedef unsigned __int128 ull;
-    typedef unsigned int uint;
+//    typedef unsigned int uint;
 
     static bool g_quiet = false;
 
@@ -509,6 +506,7 @@ namespace nextdbscan {
             ++cnt;
         }
         lines = cnt;
+        is.close();
     }
 
     uint process_input(const std::string &in_file, std::unique_ptr<float[]> &v_points, uint &n, uint &max_d,
