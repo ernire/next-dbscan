@@ -155,9 +155,13 @@ int main(int argc, char** argv) {
         if (output_file.length() > 0) {
             std::cout << "Writing output to " << output_file << std::endl;
             std::ofstream os(output_file);
-            for (auto &c : *results.point_clusters) {
-                os << c << '\n';
+            // TODO
+            for (int i = 0; i < results.n; ++i) {
+                os << results.point_clusters[i] << std::endl;
             }
+//            for (auto &c : results.point_clusters) {
+//                os << c << '\n';
+//            }
             os.flush();
             os.close();
             std::cout << "Done!" << std::endl;

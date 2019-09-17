@@ -10,7 +10,9 @@ namespace nextdbscan {
         unsigned int clusters;
         unsigned int noise;
         unsigned int core_count;
-        std::vector<int> *point_clusters;
+        unsigned int n;
+        int *point_clusters;
+//        std::vector<int> point_clusters;
     };
 
     result start(

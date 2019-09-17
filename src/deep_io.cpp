@@ -66,7 +66,7 @@ int deep_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
 //    std::cout << "unread samples: " << unread_samples << " : buffer : " << buffer_samples << std::endl;
     uint bytes_read = 0;
     ifs.seekg(feature_offset, std::istream::beg);
-//    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
+    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
     if (!ifs.read((char *) &v_samples[block_sample_offset * feature_no], buffer_samples * feature_no * sizeof(float))) {
         if (ifs.bad()) {
             std::cerr << "Error: " << strerror(errno);
