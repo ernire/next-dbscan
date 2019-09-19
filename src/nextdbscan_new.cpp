@@ -797,9 +797,9 @@ namespace nextdbscan {
             uint c2 = stack5.back().c2;
 //            std::cout << l << " : " << t1 << " : " << c1 << " : " << " : " << t2 << " : " << c2 << std::endl;
             stack5.pop_back();
-            ull c1_val = vvv_value_maps[t1][l][vvv_index_maps[t1][l][c1]];
-            ull c2_val = vvv_value_maps[t2][l][vvv_index_maps[t2][l][c2]];
-            if (c1_val != c2_val && !is_in_reach(&vvv_min_cell_dims[t1][l][c1*max_d],
+//            ull c1_val = vvv_value_maps[t1][l][vvv_index_maps[t1][l][c1]];
+//            ull c2_val = vvv_value_maps[t2][l][vvv_index_maps[t2][l][c2]];
+            if (/*c1_val != c2_val && */!is_in_reach(&vvv_min_cell_dims[t1][l][c1*max_d],
                     &vvv_max_cell_dims[t1][l][c1*max_d], &vvv_min_cell_dims[t2][l][c2*max_d],
                     &vvv_max_cell_dims[t2][l][c2*max_d], max_d, e)) {
                 continue;
@@ -809,15 +809,15 @@ namespace nextdbscan {
             if (l == 0) {
                 if (is_nn) {
                     if (vv_cell_types[t1][c1] != AC || vv_cell_types[t2][c2] != AC) {
-                        bool all_range_check = (c1_val == c2_val);
-                        if (!all_range_check) {
-                            all_range_check = fill_range_table_mult(v_p_coords,
-                                    vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
-                                    e2, t1, t2);
-                        }
-//                        bool all_range_check = fill_range_table_mult(v_p_coords,
-//                                vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
-//                                e2, t1, t2);
+//                        bool all_range_check = (c1_val == c2_val);
+//                        if (!all_range_check) {
+//                            all_range_check = fill_range_table_mult(v_p_coords,
+//                                    vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
+//                                    e2, t1, t2);
+//                        }
+                        bool all_range_check = fill_range_table_mult(v_p_coords,
+                                vvv_index_maps, vvv_cell_ns,v_range_table, c1, begin1, c2, begin2, max_d,
+                                e2, t1, t2);
 //                        bool all_range_check = false;
 //                        if (c1_val == c2_val) {
 //                            assert(all_range_check);
@@ -912,9 +912,9 @@ namespace nextdbscan {
 
 #ifdef MPI_ON
     template <class T>
-    void mpi_sum_tree(std::vector<std::vector<T>> &vv_partial_cell_tree, const int n_cores,
-            const int max_levels, const int mpi_size, const int n_threads, const int mpi_index,
-            MPI_Datatype send_type, const bool is_verbose) {
+    void mpi_sum_tree(std::vector<std::vector<T>> &vv_partial_cell_tree, std::vector<T> &v_payload,
+            std::vector<T> &v_sink, std::vector<T> &v_additive, const int n_cores, const int mpi_size, const int n_threads,
+            MPI_Datatype send_type, const bool is_additive, const bool is_verbose) {
         int elems_to_send = 0;
         int t_sizes[n_cores];
         for (int c = 0; c < n_cores; ++c) {
@@ -935,14 +935,20 @@ namespace nextdbscan {
                 m_offsets[i] = m_offsets[i-1] + m_sizes[i-1];
             }
         }
-        std::vector<T> v_payload(elems_to_send, -1);
-        std::vector<T> v_sink(elems_to_send, -1);
+        if (v_payload.empty()) {
+            v_payload.resize(elems_to_send);
+        }
+        if (v_sink.empty()) {
+            v_sink.resize(elems_to_send);
+        }
+//        std::vector<T> v_payload(elems_to_send, -1);
+//        std::vector<T> v_sink(elems_to_send, -1);
         int index = 0;
+        // TODO omp & only fill local block
         for (int t = 0; t < n_cores; ++t) {
             for (auto &val : vv_partial_cell_tree[t]) {
-//                if (t / n_threads == mpi_index) {
-                    v_payload[index] = val;
-//                }
+//                assert(index < v_payload.size());
+                v_payload[index] = is_additive? val-v_additive[index] : val;
                 ++index;
             }
         }
@@ -956,9 +962,13 @@ namespace nextdbscan {
         MPI_Allreduce(&v_payload[0], &v_sink[0], elems_to_send, send_type, MPI_SUM, MPI_COMM_WORLD);
         index = 0;
         for (int t = 0; t < n_cores; ++t) {
-            for (int i = 0; i < vv_partial_cell_tree[t].size(); ++i) {
+            for (int i = 0; i < vv_partial_cell_tree[t].size(); ++i, ++index) {
 //                assert(v_sink[index] != (T)-1);
-                vv_partial_cell_tree[t][i] = v_sink[index++];
+                if (is_additive) {
+                    vv_partial_cell_tree[t][i] = v_additive[index] + v_sink[index];
+                } else {
+                    vv_partial_cell_tree[t][i] = v_sink[index];
+                }
             }
         }
     }
@@ -1282,6 +1292,11 @@ namespace nextdbscan {
         std::vector<cell_meta_5> stacks5[n_threads];
         std::vector<std::vector<bool>> vv_range_tables(n_threads);
         std::vector<cell_meta_5> v_mult_tree_tasks;
+        // MPI only
+        std::vector<uint> v_payload;
+        std::vector<uint> v_sink;
+        std::vector<uint> v_sink_cells;
+        std::vector<uint> v_sink_points;
 
         auto v_p_coords = std::make_unique<float*[]>(n_cores);
         for (uint t = 0; t < n_cores; ++t) {
@@ -1400,17 +1415,27 @@ namespace nextdbscan {
                 MPI_Barrier(MPI_COMM_WORLD);
                 if (nodes_no > 1) {
                     auto mpi_time_1 = std::chrono::high_resolution_clock::now();
-                    mpi_sum_tree(vv_point_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
-                    mpi_sum_tree(vv_leaf_cell_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
-                    mpi_sum_tree(vv_cell_types, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_INT8_T, false);
+                    mpi_sum_tree(vv_point_nns, v_payload, v_sink_points, v_sink, n_cores, nodes_no, n_threads, MPI_UNSIGNED, false, false);
+                    mpi_sum_tree(vv_leaf_cell_nns, v_payload, v_sink_cells, v_sink, n_cores, nodes_no, n_threads, MPI_UNSIGNED, false, false);
+//                    mpi_sum_tree(vv_cell_types, v_payload3, v_sink3, n_cores, nodes_no, n_threads, MPI_INT8_T, false);
+
+                    for (uint t = 0; t < n_cores; ++t) {
+                        for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
+                            update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0],
+                                    vv_leaf_cell_nns[t], vv_point_nns[t], vv_is_core[t], vv_cell_types[t],
+                                    i, m);
+                        }
+                    }
+
+//                    mpi_sum_tree(vv_leaf_cell_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
+//                    mpi_sum_tree(vv_cell_types, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_INT8_T, false);
 //                    mpi_sum_tree(vv_is_core, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_CXX_BOOL, false);
                     auto mpi_time_2 = std::chrono::high_resolution_clock::now();
                     if (!g_quiet && node_index == 0) {
-                        std::cout << "MPI reductions: "
+                        std::cout << "MPI first reductions: "
                                   << std::chrono::duration_cast<std::chrono::milliseconds>(mpi_time_2 - mpi_time_1).count()
                                   << " milliseconds\n";
                     }
-                    // TODO also the type for the labels
                 }
             }
 #endif
@@ -1442,36 +1467,19 @@ namespace nextdbscan {
         // end of parallel region
         }
 #ifdef MPI_ON
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        if (nodes_no > 1) {
-//            auto mpi_time_1 = std::chrono::high_resolution_clock::now();
-//            mpi_sum_tree(vv_point_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
-//            mpi_sum_tree(vv_leaf_cell_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
-//            auto mpi_time_2 = std::chrono::high_resolution_clock::now();
-//            if (!g_quiet && node_index == 0) {
-//                std::cout << "MPI reductions: "
-//                          << std::chrono::duration_cast<std::chrono::milliseconds>(mpi_time_2 - mpi_time_1).count()
-//                          << " milliseconds\n";
-//            }
-//            // TODO also the type for the labels
-//        }
-#endif
+        mpi_sum_tree(vv_point_nns, v_payload, v_sink, v_sink_points, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
+        mpi_sum_tree(vv_leaf_cell_nns, v_payload, v_sink, v_sink_cells, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
         #pragma omp parallel for
         for (uint t = 0; t < n_cores; ++t) {
             for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
-                uint begin = vvv_cell_begins[t][0][i];
-                for (uint j = 0; j < vvv_cell_ns[t][0][i]; ++j) {
-                    uint index = vvv_index_maps[t][0][begin+j];
-                    if (vv_leaf_cell_nns[t][i] + vv_point_nns[t][index] >= m) {
-                        vv_is_core[t][index] = true;
-                    }
-                }
+                update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0],
+                        vv_leaf_cell_nns[t], vv_point_nns[t], vv_is_core[t], vv_cell_types[t], i, m);
             }
         }
+#endif
 //        #pragma omp parallel
 //        {
 
-        /*
         for (uint nid = 0; nid < n_cores; ++nid) {
             for (uint i = 0; i < vv_cell_types[nid].size(); ++i) {
                 if (vv_cell_types[nid][i] == NC) {
@@ -1511,7 +1519,6 @@ namespace nextdbscan {
                         vv_range_tables[tid], vvv_min_cell_dims[nid], vvv_max_cell_dims[nid], l, m, max_d, e, e2, false);
             }
         }
-         */
 
 //        }
         auto time11 = std::chrono::high_resolution_clock::now();
