@@ -781,6 +781,7 @@ namespace nextdbscan {
     void process_cell_tree_pairs(std::unique_ptr<float*[]> &v_p_coords,
             std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
             std::vector<std::vector<std::vector<ull>>> &vvv_value_maps,
+            std::vector<std::vector<struct_label>> &v_p_labels,
             std::vector<std::vector<std::vector<uint>>> &vvv_cell_begins,
             std::vector<std::vector<std::vector<float>>> &vvv_min_cell_dims,
             std::vector<std::vector<std::vector<float>>> &vvv_max_cell_dims,
@@ -852,6 +853,51 @@ namespace nextdbscan {
                         }
                     }
                 } else {
+                    if (vv_cell_types[t1][c1] != NC || vv_cell_types[t2][c2] != NC) {
+                        if (vv_cell_types[t1][c1] != NC && vv_cell_types[t2][c2] != NC) {
+                            for (uint k1 = 0; k1 < vvv_cell_ns[t1][l][c1]; ++k1) {
+                                uint p1 = vvv_index_maps[t1][l][begin1 + k1];
+                                for (uint k2 = 0; k2 < vvv_cell_ns[t2][l][c2]; ++k2) {
+                                    uint p2 = vvv_index_maps[t2][l][begin2 + k2];
+                                    if (vv_is_core[t1][p1] && vv_is_core[t2][p2] && dist_leq(&v_p_coords[t1][p1 * max_d],
+                                            &v_p_coords[t2][p2 * max_d], max_d, e2)) {
+                                        // TODO make thread safe
+                                        auto p1_label = get_label(&v_p_labels[t1][p1]);
+                                        auto p2_label = get_label(&v_p_labels[t2][p2]);
+                                        if (p1_label != p2_label) {
+                                            set_lower_label(p1_label, p2_label);
+                                        }
+                                        k2 = vvv_cell_ns[t2][l][c2];
+                                        k1 = vvv_cell_ns[t1][l][c1];
+                                    }
+                                }
+                            }
+                        } else {
+                            for (uint k1 = 0; k1 < vvv_cell_ns[t1][l][c1]; ++k1) {
+                                uint p1 = vvv_index_maps[t1][l][begin1 + k1];
+                                auto p1_label = get_label(&v_p_labels[t1][p1]);
+                                if (!vv_is_core[t1][p1] && p1_label->label != UNASSIGNED)
+                                    continue;
+                                for (uint k2 = 0; k2 < vvv_cell_ns[t2][l][c2]; ++k2) {
+                                    uint p2 = vvv_index_maps[t2][l][begin2 + k2];
+                                    auto p2_label = get_label(&v_p_labels[t2][p2]);
+                                    if (!vv_is_core[t2][p2] && p2_label->label != UNASSIGNED)
+                                        continue;
+                                    if (vv_is_core[t1][p1]) {
+                                        if (dist_leq(&v_p_coords[t1][p1 * max_d], &v_p_coords[t2][p2 * max_d], max_d, e2)) {
+                                            v_p_labels[t2][p2].label_p = p1_label;
+                                        }
+                                    } else if (vv_is_core[t2][p2]) {
+                                        if (dist_leq(&v_p_coords[t1][p1 * max_d], &v_p_coords[t2][p2 * max_d], max_d, e2)) {
+                                            v_p_labels[t1][p1].label_p = p2_label;
+                                            k2 = vvv_cell_ns[t2][l][c2];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                     /*
                     if (v_types[t1][c1] != NC || v_types[t2][c2] != NC) {
                         if (v_types[t1][c1] != NC && v_types[t2][c2] != NC) {
@@ -897,7 +943,6 @@ namespace nextdbscan {
                             }
                         }
                      */
-                }
             } else {
                 for (uint k1 = 0; k1 < vvv_cell_ns[t1][l][c1]; ++k1) {
                     uint c1_next = vvv_index_maps[t1][l][begin1 + k1];
@@ -1363,7 +1408,7 @@ namespace nextdbscan {
                               << " milliseconds\n";
                 }
 #endif
-                uint level = n_cores > 2? max_levels-1 : max_levels-2;
+                uint level = n_cores > 2 ? max_levels - 1 : max_levels - 2;
 //                uint level = max_levels-2;
                 uint level_permutations = 1;
                 for (uint t = 0; t < n_cores; ++t) {
@@ -1393,11 +1438,11 @@ namespace nextdbscan {
                 if (vvv_cell_ns[t][0].size() > max_points_in_leaf_cell)
                     max_points_in_leaf_cell = vvv_cell_ns[t][0].size();
             }
-            vv_range_tables[tid].resize(max_points_in_leaf_cell*max_points_in_leaf_cell);
+            vv_range_tables[tid].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
             for (uint l = 0; l < max_levels; ++l) {
                 process_cell_tree_level(v_p_coords[nid], vv_labels[nid], vvv_cell_begins[nid], vvv_cell_ns[nid],
-                        vvv_index_maps[nid],vv_leaf_cell_nns[nid], vv_cell_types[nid], vv_is_core[nid],
-                        vv_point_nns[nid], stacks3[tid],vv_range_tables[tid], vvv_min_cell_dims[nid],
+                        vvv_index_maps[nid], vv_leaf_cell_nns[nid], vv_cell_types[nid], vv_is_core[nid],
+                        vv_point_nns[nid], stacks3[tid], vv_range_tables[tid], vvv_min_cell_dims[nid],
                         vvv_max_cell_dims[nid], l, m, max_d, e, e2, true);
             }
             auto time8 = std::chrono::high_resolution_clock::now();
@@ -1410,26 +1455,13 @@ namespace nextdbscan {
                 }
             }
 #ifdef MPI_ON
-            #pragma omp single
-            {
-                MPI_Barrier(MPI_COMM_WORLD);
-                if (nodes_no > 1) {
+            if (nodes_no > 1) {
+                #pragma omp barrier
+                #pragma omp single
+                {
                     auto mpi_time_1 = std::chrono::high_resolution_clock::now();
                     mpi_sum_tree(vv_point_nns, v_payload, v_sink_points, v_sink, n_cores, nodes_no, n_threads, MPI_UNSIGNED, false, false);
                     mpi_sum_tree(vv_leaf_cell_nns, v_payload, v_sink_cells, v_sink, n_cores, nodes_no, n_threads, MPI_UNSIGNED, false, false);
-//                    mpi_sum_tree(vv_cell_types, v_payload3, v_sink3, n_cores, nodes_no, n_threads, MPI_INT8_T, false);
-
-                    for (uint t = 0; t < n_cores; ++t) {
-                        for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
-                            update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0],
-                                    vv_leaf_cell_nns[t], vv_point_nns[t], vv_is_core[t], vv_cell_types[t],
-                                    i, m);
-                        }
-                    }
-
-//                    mpi_sum_tree(vv_leaf_cell_nns, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_UNSIGNED, false);
-//                    mpi_sum_tree(vv_cell_types, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_INT8_T, false);
-//                    mpi_sum_tree(vv_is_core, n_cores, max_levels, nodes_no, n_threads, node_index, MPI_CXX_BOOL, false);
                     auto mpi_time_2 = std::chrono::high_resolution_clock::now();
                     if (!g_quiet && node_index == 0) {
                         std::cout << "MPI first reductions: "
@@ -1437,21 +1469,29 @@ namespace nextdbscan {
                                   << " milliseconds\n";
                     }
                 }
+                #pragma omp barrier
+                #pragma omp for
+                for (uint t = 0; t < n_cores; ++t) {
+                    for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
+                        update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0], vv_leaf_cell_nns[t],
+                                vv_point_nns[t], vv_is_core[t], vv_cell_types[t], i, m);
+                    }
+                }
             }
+
 #endif
             if (n_cores > 1) {
                 #pragma omp barrier
                 auto time9 = std::chrono::high_resolution_clock::now();
-                uint work_cnt = 0;
                 #pragma omp for schedule(dynamic)
                 for (uint i = task_offset; i < task_offset + task_size; ++i) {
-                    ++work_cnt;
                     stacks5[tid].push_back(v_mult_tree_tasks[i]);
-                    process_cell_tree_pairs(v_p_coords, vvv_index_maps, vvv_value_maps, vvv_cell_begins,
+                    process_cell_tree_pairs(v_p_coords, vvv_index_maps, vvv_value_maps, vv_labels, vvv_cell_begins,
                             vvv_min_cell_dims, vvv_max_cell_dims, vv_leaf_cell_nns, vv_cell_types,
                             vv_range_tables[tid],
                             vv_is_core, vv_point_nns, vvv_cell_ns, stacks5[tid], max_d, m, e, e2, true);
                 }
+                #pragma omp barrier
 //                #pragma omp critical
 //                std::cout << "t: " << tid << " shared work cnt: " << work_cnt << std::endl;
                 if (tid == 0) {
@@ -1467,19 +1507,21 @@ namespace nextdbscan {
         // end of parallel region
         }
 #ifdef MPI_ON
-        mpi_sum_tree(vv_point_nns, v_payload, v_sink, v_sink_points, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
-        mpi_sum_tree(vv_leaf_cell_nns, v_payload, v_sink, v_sink_cells, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
-        #pragma omp parallel for
-        for (uint t = 0; t < n_cores; ++t) {
-            for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
-                update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0],
-                        vv_leaf_cell_nns[t], vv_point_nns[t], vv_is_core[t], vv_cell_types[t], i, m);
+        if (nodes_no > 1) {
+            mpi_sum_tree(vv_point_nns, v_payload, v_sink, v_sink_points, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
+            mpi_sum_tree(vv_leaf_cell_nns, v_payload, v_sink, v_sink_cells, n_cores, nodes_no, n_threads, MPI_UNSIGNED, true, false);
+            #pragma omp parallel for
+            for (uint t = 0; t < n_cores; ++t) {
+                for (uint i = 0; i < vvv_cell_ns[t][0].size(); ++i) {
+                    update_type(vvv_index_maps[t][0], vvv_cell_ns[t][0], vvv_cell_begins[t][0],
+                            vv_leaf_cell_nns[t], vv_point_nns[t], vv_is_core[t], vv_cell_types[t], i, m);
+                }
             }
         }
 #endif
-//        #pragma omp parallel
-//        {
-
+        /*
+        auto time_labels_0 = std::chrono::high_resolution_clock::now();
+        uint g_label = 0;
         for (uint nid = 0; nid < n_cores; ++nid) {
             for (uint i = 0; i < vv_cell_types[nid].size(); ++i) {
                 if (vv_cell_types[nid][i] == NC) {
@@ -1487,7 +1529,6 @@ namespace nextdbscan {
                 } else {
                     uint begin = vvv_cell_begins[nid][0][i];
                     uint i_core = 0;
-//                    uint p;
                     if (vv_cell_types[nid][i] == SC) {
                         // find a core
                         for (uint j = 0; j < vvv_cell_ns[nid][0][i]; ++j) {
@@ -1500,7 +1541,8 @@ namespace nextdbscan {
                     } else {
                         i_core = vvv_index_maps[nid][0][begin];
                     }
-                    vv_labels[nid][i_core].label = i_core;
+//                    vv_labels[nid][i_core].label = i_core;
+                    vv_labels[nid][i_core].label = g_label++;
                     for (uint j = 0; j < vvv_cell_ns[nid][0][i]; ++j) {
                         uint p = vvv_index_maps[nid][0][begin + j];
                         if (p == i_core)
@@ -1510,7 +1552,15 @@ namespace nextdbscan {
                 }
             }
         }
+        auto time_labels_1 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet && node_index == 0) {
+            std::cout << "Label init: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                              time_labels_1 - time_labels_0).count()
+                      << " milliseconds\n";
+        }
 
+//        #pragma omp parallel for
         for (uint nid = 0; nid < n_cores; ++nid) {
             for (uint l = 0; l < max_levels; ++l) {
                 uint tid = 0;
@@ -1519,8 +1569,31 @@ namespace nextdbscan {
                         vv_range_tables[tid], vvv_min_cell_dims[nid], vvv_max_cell_dims[nid], l, m, max_d, e, e2, false);
             }
         }
+        auto time_labels_2 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet && node_index == 0) {
+            std::cout << "Local tree labels: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                              time_labels_2 - time_labels_1).count()
+                      << " milliseconds\n";
+        }
+//        #pragma omp parallel for
+        for (uint i = 0; i < v_mult_tree_tasks.size(); ++i) {
+            uint tid = omp_get_thread_num();
+            stacks5[tid].push_back(v_mult_tree_tasks[i]);
+            process_cell_tree_pairs(v_p_coords, vvv_index_maps, vvv_value_maps, vv_labels, vvv_cell_begins,
+                    vvv_min_cell_dims, vvv_max_cell_dims, vv_leaf_cell_nns, vv_cell_types,
+                    vv_range_tables[tid],
+                    vv_is_core, vv_point_nns, vvv_cell_ns, stacks5[tid], max_d, m, e, e2, false);
+        }
+        auto time_labels_3 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet && node_index == 0) {
+            std::cout << "Shared tree labels: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                              time_labels_3 - time_labels_2).count()
+                      << " milliseconds\n";
+        }
+         */
 
-//        }
         auto time11 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Total Execution Time: "
