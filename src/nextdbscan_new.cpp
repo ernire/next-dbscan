@@ -33,7 +33,7 @@ SOFTWARE.
 #include <omp.h>
 #include <numeric>
 #include <unordered_map>
-#define MPI_ON
+//#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -999,8 +999,6 @@ namespace nextdbscan {
         if (v_sink.empty()) {
             v_sink.resize(elems_to_send);
         }
-//        std::vector<T> v_payload(elems_to_send, -1);
-//        std::vector<T> v_sink(elems_to_send, -1);
         int index = 0;
         // TODO omp & only fill local block
         for (int t = 0; t < n_cores; ++t) {
@@ -1149,27 +1147,81 @@ namespace nextdbscan {
 
 
     void sort_and_merge_data(std::unique_ptr<float[]> &v_coords, const uint size, const uint offset, const uint n_cores,
-            const uint max_d, const uint node_index, const uint nodes_no, const uint total_samples) {
-        std::vector<uint> v_coord_index_map(size);
-        std::iota(v_coord_index_map.begin(), v_coord_index_map.end(), 0);
-
+            const uint max_d, const uint node_index, const uint nodes_no, const uint total_samples, const uint n_threads) {
         auto time2 = std::chrono::high_resolution_clock::now();
+//        std::vector<uint> v_coord_index_map(size);
+//        std::iota(v_coord_index_map.begin(), v_coord_index_map.end(), 0);
         auto *p_v_coords = &v_coords[offset*max_d];
         std::vector<float> v_coords_tmp(size * max_d);
         if (n_cores > 1) {
-            std::sort(v_coord_index_map.begin(), v_coord_index_map.end(), [&](const auto &i1, const auto &i2) ->
-                    bool {
-                return p_v_coords[i1 * max_d] < p_v_coords[i2 * max_d];
-            });
-            for (uint i = 0; i < v_coord_index_map.size(); ++i) {
-                for (uint j = 0; j < max_d; ++j) {
-                    v_coords_tmp[i * max_d + j] = p_v_coords[(v_coord_index_map[i] * max_d) + j];
+//            auto v_thread_block_sizes = std::make_unique<uint[]>(n_threads * n_threads);
+//            auto v_thread_block_offsets = std::make_unique<uint[]>(n_threads * n_threads);
+            uint n_threads_2 = n_threads*n_threads;
+            uint v_thread_block_sizes[n_threads_2];
+            std::fill(v_thread_block_sizes, v_thread_block_sizes + n_threads_2, 0);
+            uint v_thread_block_offsets[n_threads_2];
+            std::vector<float> v_coords_values[n_threads];
+            std::vector<uint> v_coord_index_map[n_threads];
+//            deep_io::get_blocks_meta(v_thread_block_sizes, v_thread_block_offsets, size,
+//                    n_threads * n_threads);
+//            auto v_thread_block_sizes = std::make_unique(uint[])
+            #pragma omp parallel reduction(+:v_thread_block_sizes[:n_threads_2])
+            {
+                uint tid = omp_get_thread_num();
+                uint local_size = deep_io::get_block_size(tid, size, n_threads);
+                uint local_offset = deep_io::get_block_start_offset(tid, size, n_threads);
+                v_coords_values[tid].assign(p_v_coords+(local_offset*max_d),
+                        p_v_coords+((local_offset+local_size)*max_d));
+                assert(v_coords_values[tid].size() == local_size*max_d);
+                v_coord_index_map[tid].resize(local_size);
+                std::iota(v_coord_index_map[tid].begin(), v_coord_index_map[tid].end(), 0);
+//                v_coords_tmp[tid].assign(std::next(v_coord_index_map.begin(), local_offset),
+//                        std::next(v_coord_index_map.begin(),local_offset + local_size));
+                std::sort(v_coord_index_map[tid].begin(), v_coord_index_map[tid].end(),
+                        [&v_coords_values, tid, max_d](const auto &i1, const auto &i2) ->
+                        bool { return v_coords_values[tid][i1 * max_d] < v_coords_values[tid][i2 * max_d];
+                });
+                for (uint i = 0; i < n_threads; ++i) {
+                    v_thread_block_sizes[(i*n_threads)+tid] = deep_io::get_block_size(i, local_size, n_threads);
+                }
+            }
+            print_array("test: ", v_thread_block_sizes, n_threads_2);
+            v_thread_block_offsets[0] = 0;
+            for (uint i = 1; i < n_threads_2; ++i) {
+                v_thread_block_offsets[i] = v_thread_block_offsets[i-1] + v_thread_block_sizes[i-1];
+            }
+            print_array("test2: ", v_thread_block_offsets, n_threads_2);
+            #pragma omp parallel
+            {
+                uint tid = omp_get_thread_num();
+                uint local_offset = 0;
+                for (uint i = 0; i < n_threads; ++i) {
+                    uint local_size = v_thread_block_sizes[(i*n_threads)+tid];
+                    uint base = v_thread_block_offsets[(i*n_threads)+tid]*max_d;
+//                #pragma omp critical
+//                    std::cout << "tid: " << tid << " local_size: " << local_size << " base: " << base << " local_offset: " << local_offset << std::endl;
+                    for (uint j = 0; j < local_size; ++j) {
+//                        if (local_offset >= v_coord_index_map[tid].size()) {
+//#pragma omp critical
+//                            std::cerr << "Local offset: " << local_offset << " map size: " << v_coord_index_map[tid].size() << std::endl;
+//                        }
+                        assert(local_offset < v_coord_index_map[tid].size());
+                        uint base2 = v_coord_index_map[tid][local_offset]*max_d;
+                        assert(base2 < v_coords_values[tid].size());
+                        for (uint d = 0; d < max_d; ++d) {
+                            p_v_coords[base+(j*max_d)+d] = v_coords_values[tid][base2+d];
+                        }
+                        ++local_offset;
+                    }
+//                    std::copy(std::next(v_coords_tmp[tid].begin(), local_offset),
+//                            std::next(v_coords_tmp[tid].begin(), local_offset+local_size),
+//                            p_v_coords[v_thread_block_offsets[(i*n_threads)+tid]]);
+//                    local_offset += local_size;
                 }
             }
             if (nodes_no == 1) {
-                std::copy(v_coords_tmp.begin(), v_coords_tmp.end(), p_v_coords);
+//                std::copy(v_coords_tmp.begin(), v_coords_tmp.end(), p_v_coords);
             }
-
         }
         auto time3 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
@@ -1274,7 +1326,8 @@ namespace nextdbscan {
             calc_dims_mult(&v_dims_mult[l*max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
         }
 
-        sort_and_merge_data(v_coords, v_node_sizes[node_index], v_node_offsets[node_index], n_cores, max_d, node_index, nodes_no, total_samples);
+        sort_and_merge_data(v_coords, v_node_sizes[node_index], v_node_offsets[node_index], n_cores, max_d, node_index,
+                nodes_no, total_samples, n_threads);
 
         auto time4 = std::chrono::high_resolution_clock::now();
         auto v_omp_block_sizes = std::make_unique<uint[]>(n_cores);
@@ -1482,6 +1535,7 @@ namespace nextdbscan {
                 }
                 if (node_index == 0)
                     std::cout << "Total number of core multi tree tasks: " << v_mult_tree_tasks.size() << std::endl;
+                auto time_shared_1 = std::chrono::high_resolution_clock::now();
                 uint task_size = deep_io::get_block_size(node_index, v_mult_tree_tasks.size(), nodes_no);
                 uint task_offset = deep_io::get_block_start_offset(node_index, v_mult_tree_tasks.size(), nodes_no);
                 #pragma omp for schedule(dynamic)
@@ -1493,9 +1547,10 @@ namespace nextdbscan {
                             vv_range_tables[tid],
                             vv_is_core, vv_point_nns, vvv_cell_ns, stacks5[tid], max_d, m, e, e2, true);
                 }
+                auto time_shared_2 = std::chrono::high_resolution_clock::now();
                 if (!g_quiet && node_index == 0) {
                     std::cout << "Shared tree pairs: "
-                              << std::chrono::duration_cast<std::chrono::milliseconds>(mpi_time_2 - mpi_time_1).count()
+                              << std::chrono::duration_cast<std::chrono::milliseconds>(time_shared_2 - time_shared_1).count()
                               << " milliseconds\n";
                 }
             }
@@ -1513,7 +1568,7 @@ namespace nextdbscan {
             }
             auto time_sum_2 = std::chrono::high_resolution_clock::now();
             if (!g_quiet && node_index == 0) {
-                std::cout << "MPI second reductions: "
+                std::cout << "MPI second reduction: "
                           << std::chrono::duration_cast<std::chrono::milliseconds>(
                                   time_sum_2 - time_sum_1).count()
                           << " milliseconds\n";
