@@ -1356,6 +1356,48 @@ namespace nextdbscan {
 #endif
     }
 
+    /*
+        std::vector<std::vector<std::vector<uint>>> vvv_index_maps(n_cores);
+        std::vector<std::vector<std::vector<uint>>> vvv_cell_begins(n_cores);
+        std::vector<std::vector<std::vector<uint>>> vvv_cell_ns(n_cores);
+        std::vector<std::vector<std::vector<float>>> vvv_min_cell_dims(n_cores);
+        std::vector<std::vector<std::vector<float>>> vvv_max_cell_dims(n_cores);
+         // Tree
+        std::vector<std::vector<struct_label>> vv_labels(n_cores);
+        std::vector<std::vector<bool>> vv_is_core(n_cores);
+        std::vector<std::vector<uint>> vv_point_nns(n_cores);
+        std::vector<std::vector<uint>> vv_leaf_cell_nns(n_cores);
+        std::vector<std::vector<uint8_t>> vv_cell_types(n_cores);
+        std::vector<cell_meta_3> stacks3[n_threads];
+        std::vector<std::vector<bool>> vv_range_tables(n_threads);
+        std::vector<cell_meta_5> v_mult_tree_tasks;
+        auto v_p_coords = std::make_unique<float*[]>(n_cores);
+     */
+
+    void initalize_memory_omp(std::unique_ptr<float[]> &v_coords,
+            std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_begins,
+            std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns,
+            std::vector<std::vector<std::vector<float>>> &vvv_min_cell_dims,
+            std::vector<std::vector<std::vector<float>>> &vvv_max_cell_dims,
+            std::vector<std::vector<struct_label>> &vv_labels, std::vector<std::vector<bool>> &vv_is_core,
+            std::vector<std::vector<uint>> &vv_point_nns, std::unique_ptr<float*[]> &v_p_coords,
+            std::unique_ptr<uint[]> &v_omp_block_offsets, std::unique_ptr<uint[]> &v_omp_block_sizes,
+            const uint n_cores, const uint max_levels, const uint max_d) {
+        #pragma omp for
+        for (uint t = 0; t < n_cores; ++t) {
+            vvv_index_maps[t].resize(max_levels);
+            vvv_cell_begins[t].resize(max_levels);
+            vvv_cell_ns[t].resize(max_levels);
+            vvv_min_cell_dims[t].resize(max_levels);
+            vvv_max_cell_dims[t].resize(max_levels);
+            vv_labels[t].resize(v_omp_block_sizes[t]);
+            vv_is_core[t].resize(v_omp_block_sizes[t], false);
+            vv_point_nns[t].resize(v_omp_block_sizes[t], 0);
+            v_p_coords[t] = &v_coords[v_omp_block_offsets[t]*max_d];
+        }
+    }
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint nodes_no) noexcept {
         auto time1 = std::chrono::high_resolution_clock::now();
@@ -1381,7 +1423,6 @@ namespace nextdbscan {
         auto v_node_sizes = std::make_unique<uint[]>(nodes_no);
         auto v_node_offsets = std::make_unique<uint[]>(nodes_no);
         deep_io::get_blocks_meta(v_node_sizes, v_node_offsets, total_samples, nodes_no);
-
         sort_and_merge_data_omp(v_coords, v_node_sizes[node_index], v_node_offsets[node_index], n_cores, max_d,
                 node_index, nodes_no, total_samples, n_threads);
 //        std::cout << "node sizes: " << v_node_sizes[0] << " " << v_node_sizes[1] << std::endl;
@@ -1411,27 +1452,19 @@ namespace nextdbscan {
         std::vector<cell_meta_3> stacks3[n_threads];
         std::vector<std::vector<bool>> vv_range_tables(n_threads);
         std::vector<cell_meta_5> v_mult_tree_tasks;
+        auto v_p_coords = std::make_unique<float*[]>(n_cores);
         // MPI only
         std::vector<uint> v_payload;
         std::vector<uint> v_sink;
         std::vector<uint> v_sink_cells;
         std::vector<uint> v_sink_points;
+        initalize_memory_omp(v_coords, vvv_index_maps, vvv_cell_begins, vvv_cell_ns, vvv_min_cell_dims,
+                vvv_max_cell_dims, vv_labels, vv_is_core, vv_point_nns, v_p_coords, v_omp_block_offsets,
+                v_omp_block_sizes, n_cores, max_levels, max_d);
 
-        auto v_p_coords = std::make_unique<float*[]>(n_cores);
-        for (uint t = 0; t < n_cores; ++t) {
-            vvv_index_maps[t].resize(max_levels);
-            vvv_cell_begins[t].resize(max_levels);
-            vvv_cell_ns[t].resize(max_levels);
-            vvv_min_cell_dims[t].resize(max_levels);
-            vvv_max_cell_dims[t].resize(max_levels);
-            vv_labels[t].resize(v_omp_block_sizes[t]);
-            vv_is_core[t].resize(v_omp_block_sizes[t], false);
-            vv_point_nns[t].resize(v_omp_block_sizes[t], 0);
-            v_p_coords[t] = &v_coords[v_omp_block_offsets[t]*max_d];
-        }
         auto time5 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
-            std::cout << "Memory init and data boundaries: "
+            std::cout << "Memory Init: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time5 - time4).count()
                       << " milliseconds\n";
         }
@@ -1440,7 +1473,7 @@ namespace nextdbscan {
                 n_threads, max_levels, max_d, e);
         auto time6 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
-            std::cout << "Local tree indexing: "
+            std::cout << "Local Indexing: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                               time6 - time5).count()
                       << " milliseconds\n";
@@ -1467,11 +1500,11 @@ namespace nextdbscan {
             vv_range_tables[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
         }
         auto time7 = std::chrono::high_resolution_clock::now();
-        #pragma omp parallel for //collapse(2) schedule(dynamic)
-        for (uint t = 0; t < n_threads; ++t) {
+        #pragma omp parallel
+        {
+            uint tid = omp_get_thread_num();
+            uint nid = tid + (node_index * n_threads);
             for (uint l = 0; l < max_levels; ++l) {
-                uint tid = omp_get_thread_num();
-                uint nid = t + (node_index * n_threads);
                 process_cell_tree_level(v_p_coords[nid], vv_labels[nid], vvv_cell_begins[nid], vvv_cell_ns[nid],
                         vvv_index_maps[nid], vv_leaf_cell_nns[nid], vv_cell_types[nid], vv_is_core[nid],
                         vv_point_nns[nid], stacks3[tid], vv_range_tables[tid], vvv_min_cell_dims[nid],
