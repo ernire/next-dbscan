@@ -424,7 +424,7 @@ namespace nextdbscan {
     }
 
 
-    result calculate_results(std::vector<uint8_t> &v_is_core, std::vector<std::vector<struct_label>> &vv_labels,
+    result calculate_results(std::vector<uint8_t> &v_is_core, /*std::vector<std::vector<struct_label>> &vv_labels,*/
             uint n) noexcept {
         result res{0, 0, 0, n, new int[n]};
 //        res.core_count = 0;
@@ -443,22 +443,19 @@ namespace nextdbscan {
         }
         res.core_count = sum;
         uint index = 0;
+        /*
 //        #pragma omp parallel for
 //std::cout << "label v size: " << vv_labels.size() << std::endl;
         for (uint i = 0; i < vv_labels.size(); ++i) {
-//            std::cout << "labels size: " << vv_labels[i].size() << std::endl;
             for (uint j = 0; j < vv_labels[i].size(); ++j) {
                 int label = get_label(&vv_labels[i][j])->label;
                 res.point_clusters[index++] = label;
                 if (label == UNASSIGNED) {
                     ++res.noise;
                 }
-//                if (label != UNASSIGNED) {
-//                    labels[label] = true;
-//                }
             }
         }
-
+*/
         std::unordered_map<int, int> map;
         std::unordered_map<int, int>::iterator iter;
 //        int id = 0;
@@ -711,7 +708,7 @@ namespace nextdbscan {
     uint global_counter = 0;
     void process_pair_labels(const float *v_coords, int *v_p_c_labels,
             std::vector<int> &v_c_index,
-            std::vector<struct_label> &p_labels,
+//            std::vector<struct_label> &p_labels,
             std::vector<std::vector<uint>> &vv_cell_begins,
             std::vector<std::vector<uint>> &vv_cell_ns, std::vector<std::vector<uint>> &vv_index_maps,
             std::vector<uint> &v_leaf_cell_nns, std::vector<uint8_t> &v_cell_types, std::vector<uint8_t> &v_is_core,
@@ -2107,7 +2104,7 @@ namespace nextdbscan {
     void process_pair_stack(const float *v_coords,
             int *v_p_c_labels,
             std::vector<int> &v_c_index,
-            std::vector<struct_label> &v_labels,
+//            std::vector<struct_label> &v_labels,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<std::vector<uint>> &vv_cell_ns,
@@ -2136,7 +2133,7 @@ namespace nextdbscan {
                                 max_d, e2, m, c1, begin1, c2, begin2);
                     }
                 } else {
-                    process_pair_labels(v_coords, v_p_c_labels,v_c_index,v_labels, vv_cell_begin, vv_cell_ns, vv_index_map,
+                    process_pair_labels(v_coords, v_p_c_labels,v_c_index, /*v_labels,*/vv_cell_begin, vv_cell_ns, vv_index_map,
                             v_leaf_cell_nns, v_cell_types, v_is_core, c1, c2, l, begin1, begin2, max_d, e2);
                 }
             } else {
@@ -2198,7 +2195,6 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time3 - time2).count()
                       << " milliseconds\n";
         }
-
         // *** INDEX POINTS ***
         std::vector<std::vector<uint>> vv_index_map(max_levels);
         std::vector<std::vector<uint>> vv_cell_begin(max_levels);
@@ -2249,7 +2245,7 @@ namespace nextdbscan {
         std::cout << "Tasks size: " << v_tasks.size() << std::endl;
         auto time5 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
-            std::cout << "Index and bounds: "
+            std::cout << "Tasks init: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time5 - time4).count()
                       << " milliseconds\n";
         }
@@ -2269,10 +2265,6 @@ namespace nextdbscan {
             vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
             vv_range_counts[t].resize(max_points_in_leaf_cell*2);
         }
-//        determine_tree_tasks(v_tree_tasks, vvv_index_maps, vvv_cell_ns, vvv_cell_begins, vvv_min_cell_dims,
-//                vvv_max_cell_dims, vv_leaf_cell_nns, n_threads, max_levels, node_index, max_d, e);
-//        setup_stacks_and_tables_omp(vvv_cell_ns, vv_stacks3, vv_cell_types, vv_range_tables,
-//                n_cores, n_threads, max_d);
         auto time6 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Tasks and Stacks Setup: "
@@ -2280,10 +2272,8 @@ namespace nextdbscan {
                               time6 - time5).count()
                       << " milliseconds\n";
         }
-        std::vector<std::vector<struct_label>> vv_labels(1);
-//        std::vector<std::vector<bool>> vv_is_core(1);
-        vv_labels[0].resize(v_node_sizes[node_index]);
-//        vv_is_core[0].resize(v_node_sizes[node_index], false);
+//        std::vector<std::vector<struct_label>> vv_labels(1);
+//        vv_labels[0].resize(v_node_sizes[node_index]);
         std::vector<uint> v_point_nns(v_node_sizes[node_index], 0);
         std::vector<uint8_t> v_cell_types(vv_cell_ns[0].size(), NC);
         std::vector<uint8_t> v_is_core(v_node_sizes[node_index], 0);
@@ -2294,7 +2284,8 @@ namespace nextdbscan {
             uint tid = omp_get_thread_num();
 //            uint tid = 0;
             vv_stacks3[tid].push_back(v_tasks[i]);
-            process_pair_stack(&v_coords[v_node_offsets[node_index]], nullptr, v_c_index, vv_labels[0], vv_index_map, vv_cell_begin, vv_cell_ns,
+            process_pair_stack(&v_coords[v_node_offsets[node_index]], nullptr, v_c_index, /*vv_labels[0],*/
+                    vv_index_map, vv_cell_begin, vv_cell_ns,
                     vv_min_cell_dim, vv_max_cell_dim, v_leaf_cell_nns, v_point_nns, vv_stacks3[tid],
                     vv_range_table[tid], vv_range_counts[tid], v_cell_types, v_is_core, m, max_d, e, e2, true);
         }
@@ -2310,13 +2301,6 @@ namespace nextdbscan {
         for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
             update_type(vv_index_map[0], vv_cell_ns[0], vv_cell_begin[0],
                     v_leaf_cell_nns, v_point_nns, v_is_core, v_cell_types, i, m);
-        }
-        auto time8 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet && node_index == 0) {
-            std::cout << "Infer cores and types: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                              time8 - time7).count()
-                      << " milliseconds\n";
         }
 
         uint max_clusters = 0;
@@ -2342,7 +2326,15 @@ namespace nextdbscan {
         }
         assert(cluster_index == max_clusters);
 
+        auto time8 = std::chrono::high_resolution_clock::now();
+        if (!g_quiet && node_index == 0) {
+            std::cout << "Infer cores and init clusters: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                              time8 - time7).count()
+                      << " milliseconds\n";
+        }
 
+/*
         uint g_label = 0;
         for (uint i = 0; i < v_cell_types.size(); ++i) {
             if (v_cell_types[i] == NC) {
@@ -2372,15 +2364,16 @@ namespace nextdbscan {
                 }
             }
         }
-        std::cout << "Maximum number of clusters: " << g_label << std::endl;
-        for (uint i = 0; i < v_cell_types.size(); ++i) {
-            uint begin = vv_cell_begin[0][i];
-            if (v_cell_types[i] == NC) {
-                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label == UNASSIGNED);
-            } else {
-                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label != UNASSIGNED);
-            }
-        }
+        */
+//        std::cout << "Maximum number of clusters: " << g_label << std::endl;
+//        for (uint i = 0; i < v_cell_types.size(); ++i) {
+//            uint begin = vv_cell_begin[0][i];
+//            if (v_cell_types[i] == NC) {
+//                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label == UNASSIGNED);
+//            } else {
+//                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label != UNASSIGNED);
+//            }
+//        }
         /*
         auto time_locks1 = std::chrono::high_resolution_clock::now();
         auto lock = new omp_lock_t[v_c_label.size()];
@@ -2407,8 +2400,8 @@ namespace nextdbscan {
         for (uint i = 0; i < v_tasks.size(); ++i) {
             uint tid = omp_get_thread_num();
             vv_stacks3[tid].push_back(v_tasks[i]);
-            process_pair_stack(&v_coords[v_node_offsets[node_index]], &v_tmp[tid][0]/*v_p_c_labels*/, v_c_index, vv_labels[0], vv_index_map,
-                    vv_cell_begin,vv_cell_ns,vv_min_cell_dim, vv_max_cell_dim, v_leaf_cell_nns,
+            process_pair_stack(&v_coords[v_node_offsets[node_index]], &v_tmp[tid][0]/*v_p_c_labels*/, v_c_index, /*vv_labels[0],*/
+                    vv_index_map, vv_cell_begin,vv_cell_ns,vv_min_cell_dim, vv_max_cell_dim, v_leaf_cell_nns,
                     v_point_nns, vv_stacks3[tid],vv_range_table[tid], vv_range_counts[tid],
                     v_cell_types, v_is_core, m, max_d, e, e2, false);
         }
@@ -2506,7 +2499,7 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time11 - time2).count()
                       << " milliseconds\n";
         }
-        return calculate_results(v_is_core, vv_labels, total_samples);
+        return calculate_results(v_is_core, total_samples);
     }
 
 
@@ -2540,7 +2533,8 @@ namespace nextdbscan {
         if (node_index == 0)
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << n <<
                 " of " << total_samples << " samples." << std::endl;
-        const auto e_inner = (e / 2);
+        // TODO examine
+        const auto e_inner = (e / 1.42f);
 
         auto v_node_sizes = std::make_unique<uint[]>(nodes_no);
         auto v_node_offsets = std::make_unique<uint[]>(nodes_no);
