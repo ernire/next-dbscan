@@ -404,18 +404,18 @@ namespace nextdbscan {
                 v_range_table, c1, begin1, c2, begin2,
                 max_d, e2);
         if (all_range_check) {
-//            if (v_cell_nps[c1] < m) {
+            if (v_cell_nps[c1] < m) {
                 #pragma omp atomic
                 v_cell_nps[c1] += v_cell_ns[c2];
-//            }
+            }
             if (v_cell_nps[c2] < m) {
                 #pragma omp atomic
                 v_cell_nps[c2] += v_cell_ns[c1];
             }
         } else {
             update_cell_pair_nn(v_index_maps, v_cell_ns, v_cell_nps, v_point_nps, v_range_table,
-                    v_range_cnt,
-                    c1, begin1, c2, begin2, v_cell_nps[c1] < m, v_cell_nps[c2] < m);
+                    v_range_cnt, c1, begin1, c2, begin2, v_cell_nps[c1] < m,
+                    v_cell_nps[c2] < m);
         }
     }
 
@@ -437,17 +437,10 @@ namespace nextdbscan {
     }
 
 
-    result calculate_results(std::vector<uint8_t> &v_is_core, /*std::vector<std::vector<struct_label>> &vv_labels,*/
-            uint n) noexcept {
+    result calculate_results(std::vector<uint8_t> &v_is_core, std::vector<int> v_cluster_label, uint n) noexcept {
         result res{0, 0, 0, n, new int[n]};
-//        res.core_count = 0;
-//        res.clusters = 0;
-//        res.noise = 0;
-//        res.point_clusters.resize(n);
-
         uint sum = 0;
 
-        std::cout << "cores size: " << v_is_core.size() << std::endl;
 
         #pragma omp parallel for reduction(+:sum)
         for (uint i = 0; i < v_is_core.size(); ++i) {
@@ -455,45 +448,14 @@ namespace nextdbscan {
                 ++sum;
         }
         res.core_count = sum;
-        uint index = 0;
-        /*
-//        #pragma omp parallel for
-//std::cout << "label v size: " << vv_labels.size() << std::endl;
-        for (uint i = 0; i < vv_labels.size(); ++i) {
-            for (uint j = 0; j < vv_labels[i].size(); ++j) {
-                int label = get_label(&vv_labels[i][j])->label;
-                res.point_clusters[index++] = label;
-                if (label == UNASSIGNED) {
-                    ++res.noise;
-                }
-            }
+        sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (uint i = 0; i < v_cluster_label.size(); ++i) {
+            if (v_cluster_label[i] == LABEL_CELL)
+                ++sum;
+
         }
-*/
-        std::unordered_map<int, int> map;
-        std::unordered_map<int, int>::iterator iter;
-//        int id = 0;
-        for (int i = 0; i < n; i++) {
-            if (res.point_clusters[i] == UNASSIGNED) {
-                continue;
-//                ++res.clusters;
-            }
-            iter = map.find(res.point_clusters[i]);
-            if (iter == map.end()) {
-//                res.point_clusters[i] = id;
-                map.insert(std::make_pair(res.point_clusters[i], res.point_clusters[i]));
-                ++res.clusters;
-            }
-//            else {
-//                res.point_clusters[i] = iter->second;
-//            }
-        }
-
-
-
-
-
-
-
+        res.clusters = sum;
 
         /*
         bool_vector labels(n);
@@ -719,7 +681,6 @@ namespace nextdbscan {
         return new_cells;
     }
 
-    uint global_counter = 0;
     void process_pair_labels(const float *v_coords,
             std::vector<int> &v_t_c_cores,
             std::vector<int> &v_c_index,
@@ -739,19 +700,12 @@ namespace nextdbscan {
                         uint p2 = vv_index_maps[l][begin2 + k2];
                         if (v_is_core[p1] && v_is_core[p2] && dist_leq(&v_coords[p1 * max_d],
                                 &v_coords[p2 * max_d], max_d, e2)) {
-                            #pragma omp atomic
-                            ++global_counter;
-                            assert(v_c_index[p1] != UNASSIGNED);
-                            assert(v_c_index[p2] != UNASSIGNED);
-//                            v_core_cell_pairs.push_back(v_c_index[p1]);
-//                            v_core_cell_pairs.push_back(v_c_index[p2]);
-
                             int label1 = v_c_index[p1];
                             int label2 = v_c_index[p2];
-                            while (v_t_c_cores[label1] != INT32_MAX) {
+                            while (v_t_c_cores[label1] != LABEL_CELL) {
                                 label1 = v_t_c_cores[label1];
                             }
-                            while (v_t_c_cores[label2] != INT32_MAX) {
+                            while (v_t_c_cores[label2] != LABEL_CELL) {
                                 label2 = v_t_c_cores[label2];
                             }
                             if (label1 != label2) {
@@ -2091,10 +2045,7 @@ namespace nextdbscan {
         return shared_new_cells;
     }
 
-    void process_pair_stack(const float *v_coords,
-            std::vector<int> &v_t_c_cores,
-            std::vector<int> &v_c_index,
-//            std::vector<struct_label> &v_labels,
+    void process_pair_stack(const float *v_coords, std::vector<int> &v_t_c_cores, std::vector<int> &v_c_index,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<std::vector<uint>> &vv_cell_ns,
@@ -2123,7 +2074,8 @@ namespace nextdbscan {
                                 max_d, e2, m, c1, begin1, c2, begin2);
                     }
                 } else {
-                    process_pair_labels(v_coords, v_t_c_cores,v_c_index, /*v_labels,*/vv_cell_begin, vv_cell_ns, vv_index_map,
+                    process_pair_labels(v_coords, v_t_c_cores,v_c_index, /*v_labels,*/vv_cell_begin,
+                            vv_cell_ns, vv_index_map,
                             v_leaf_cell_nns, v_cell_types, v_is_core, c1, c2, l, begin1, begin2, max_d, e2);
                 }
             } else {
@@ -2261,6 +2213,126 @@ namespace nextdbscan {
         } // end parallel region
     }
 
+    void init_stacks(std::vector<uint> &vv_cell_ns,
+            std::vector<uint> &v_leaf_cell_nns,
+            std::vector<std::vector<cell_meta_3>> &vv_stacks3,
+            std::vector<std::vector<bool>> &vv_range_table,
+            std::vector<std::vector<uint>> &vv_range_counts,
+            const uint max_d, const uint n_threads) noexcept {
+//        #pragma omp parallel for
+//        for (uint i = 0; i < vv_cell_begin[0].size(); ++i) {
+//            v_leaf_cell_nns[i] = vv_cell_ns[0][i];
+//        }
+        uint max_points_in_leaf_cell = 0;
+        #pragma omp parallel for reduction(max: max_points_in_leaf_cell)
+        for (uint i = 0; i < vv_cell_ns.size(); ++i) {
+            v_leaf_cell_nns[i] = vv_cell_ns[i];
+            if (vv_cell_ns[i] > max_points_in_leaf_cell) {
+                max_points_in_leaf_cell = vv_cell_ns[i];
+            }
+        }
+        for (uint t = 0; t < n_threads; ++t) {
+            vv_stacks3[t].reserve(vv_cell_ns.size() * (uint) std::max((int) logf(max_d), 1));
+            vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
+            vv_range_counts[t].resize(max_points_in_leaf_cell*2);
+        }
+    }
+
+    void process_labels(std::vector<std::vector<int>> &v_t_c_labels,
+            std::vector<int> &v_labels,
+            std::vector<int> &v_cluster_label,
+            const uint n_threads, const uint max_clusters) noexcept {
+        std::vector<std::vector<int>> v_index_stack(n_threads);
+        uint flatten_cnt = 0;
+        // Flatten label trees
+        #pragma omp parallel for reduction(+:flatten_cnt)
+        for (uint t = 0; t < n_threads; ++t) {
+            for (uint i = 0; i < max_clusters; ++i) {
+                if (v_t_c_labels[t][i] == LABEL_CELL) {
+                    continue;
+                }
+                int label = v_t_c_labels[t][i];
+                while (v_t_c_labels[t][label] != LABEL_CELL) {
+                    label = v_t_c_labels[t][label];
+                }
+                v_t_c_labels[t][i] = label;
+                ++flatten_cnt;
+            }
+        }
+        std::cout << "Flatten cnt: " << flatten_cnt << std::endl;
+
+//        for (uint t = 0; t < n_threads; ++t) {
+//            for (uint i = 0; i < max_clusters; ++i) {
+//                if (v_t_c_labels[t][i] != LABEL_CELL) {
+//                    assert(v_t_c_labels[t][v_t_c_labels[t][i]] == LABEL_CELL);
+//                }
+//            }
+//        }
+        #pragma omp parallel for reduction(vec_min: v_labels)
+        for (uint i = 0; i < max_clusters; ++i) {
+            for (uint t = 0; t < n_threads; ++t) {
+                if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
+                    v_labels[i] = v_t_c_labels[t][i];
+                }
+            }
+        }
+        std::vector<int> v_cluster_index;
+        #pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
+        for (uint i = 0; i < max_clusters; ++i) {
+            if (v_labels[i] == LABEL_CELL) {
+                v_cluster_index.push_back(i);
+            }
+        }
+        // TODO sort v_cluster_index
+        v_cluster_label.resize(v_cluster_index.size(), LABEL_CELL);
+
+//        #pragma omp parallel for/* reduction(vec_min: v_cluster_label)*/ schedule(dynamic)
+        uint cnt = 0;
+        for (uint i = 0; i < max_clusters; ++i) {
+            if (v_labels[i] != LABEL_CELL) {
+                for (uint t = 0; t < n_threads; ++t) {
+                    if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] != v_labels[i]) {
+                        int label1 = v_labels[i];
+                        while (v_labels[label1] != LABEL_CELL) {
+                            label1 = v_labels[label1];
+                        }
+                        int label2 = v_t_c_labels[t][i];
+                        while (v_labels[label2] != LABEL_CELL) {
+                            label2 = v_labels[label2];
+                        }
+                        if (label1 != label2) {
+                            int index1 = UNASSIGNED, index2 = UNASSIGNED;
+                            for (int index = 0; index < v_cluster_index.size(); ++index) {
+                                if (v_cluster_index[index] == label1)
+                                    index1 = index;
+                                if (v_cluster_index[index] == label2)
+                                    index2 = index;
+                            }
+//                            assert(index1 != UNASSIGNED && index2 != UNASSIGNED);
+//                            assert(index1 < v_cluster_label.size());
+//                            assert(index2 < v_cluster_label.size());
+                            while (v_cluster_label[index1] != LABEL_CELL) {
+                                index1 = v_cluster_label[index1];
+                            }
+                            while (v_cluster_label[index2] != LABEL_CELL) {
+                                index2 = v_cluster_label[index2];
+                            }
+                            if (index1 != index2) {
+                                ++cnt;
+                                if (index1 < index2) {
+                                    v_cluster_label[index1] = index2;
+                                } else if (index2 < index1) {
+                                    v_cluster_label[index2] = index1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << "label pair cnt: " << cnt << std::endl;
+    }
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint nodes_no) noexcept {
         // *** READ DATA ***
@@ -2327,11 +2399,6 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
         std::vector<cell_meta_3> v_tasks;
-        std::vector<uint> v_leaf_cell_nns(vv_cell_ns[0].size(), 0);
-        #pragma omp parallel for
-        for (uint i = 0; i < vv_cell_begin[0].size(); ++i) {
-            v_leaf_cell_nns[i] = vv_cell_ns[0][i];
-        }
         determine_tasks(vv_index_map, vv_cell_begin, vv_cell_ns, v_tasks, vv_min_cell_dim,
                 vv_max_cell_dim, max_levels, max_d, e, n_threads);
         std::cout << "Tasks size: " << v_tasks.size() << std::endl;
@@ -2344,22 +2411,12 @@ namespace nextdbscan {
         std::vector<std::vector<cell_meta_3>> vv_stacks3(n_threads);
         std::vector<std::vector<bool>> vv_range_table(n_threads);
         std::vector<std::vector<uint>> vv_range_counts(n_threads);
-        uint max_points_in_leaf_cell = 0;
-        #pragma omp parallel for reduction(max: max_points_in_leaf_cell)
-        for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
-            if (vv_cell_ns[0][i] > max_points_in_leaf_cell) {
-                max_points_in_leaf_cell = vv_cell_ns[0][i];
-            }
-        }
-//#pragma omp parallel for
-        for (uint t = 0; t < n_threads; ++t) {
-            vv_stacks3[t].reserve(vv_cell_ns[0].size() * (uint) std::max((int) logf(max_d), 1));
-            vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
-            vv_range_counts[t].resize(max_points_in_leaf_cell*2);
-        }
+        std::vector<uint> v_leaf_cell_nns(vv_cell_ns[0].size(), 0);
+        init_stacks(vv_cell_ns[0], v_leaf_cell_nns, vv_stacks3, vv_range_table, vv_range_counts,
+                max_d, n_threads);
         auto time6 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
-            std::cout << "Tasks and Stacks Setup: "
+            std::cout << "Stacks and Counters: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                               time6 - time5).count()
                       << " milliseconds\n";
@@ -2403,43 +2460,10 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
 
-//        std::cout << "Maximum number of clusters: " << g_label << std::endl;
-//        for (uint i = 0; i < v_cell_types.size(); ++i) {
-//            uint begin = vv_cell_begin[0][i];
-//            if (v_cell_types[i] == NC) {
-//                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label == UNASSIGNED);
-//            } else {
-//                assert(get_label(&vv_labels[0][vv_index_map[0][begin]])->label != UNASSIGNED);
-//            }
-//        }
-        /*
-        auto time_locks1 = std::chrono::high_resolution_clock::now();
-        auto lock = new omp_lock_t[v_c_label.size()];
-//        #pragma omp parallel for
-        for (uint i = 0; i < v_c_label.size(); ++i) {
-            omp_init_lock(&lock[i]);
-        }
-        auto time_locks2 = std::chrono::high_resolution_clock::now();
-        if (!g_quiet && node_index == 0) {
-            std::cout << "Locks Init: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                              time_locks2 - time_locks1).count()
-                      << " milliseconds\n";
-        }
-         */
-
-        // Shenanigans because OpenMP can't reduce std::vector elementwise
-//        auto *v_p_c_labels = &v_c_label[0];
-//        std::vector<std::vector<int>> v_tmp(n_threads);
-//        for (uint t = 0; t < n_threads; ++t) {
-//            v_tmp[t].resize(max_clusters, INT32_MAX);
-//        }
-
-
         for (uint t = 0; t < n_threads; ++t) {
             v_t_c_labels[t].resize(max_clusters, LABEL_CELL);
         }
-        #pragma omp parallel for schedule(dynamic) //reduction(min:v_p_c_labels[0:max_clusters])
+        #pragma omp parallel for schedule(dynamic)
         for (uint i = 0; i < v_tasks.size(); ++i) {
             uint tid = omp_get_thread_num();
             vv_stacks3[tid].push_back(v_tasks[i]);
@@ -2448,138 +2472,104 @@ namespace nextdbscan {
                     v_leaf_cell_nns,v_point_nns, vv_stacks3[tid],vv_range_table[tid],
                     vv_range_counts[tid],v_cell_types, v_is_core, m, max_d, e, e2, false);
         }
-//        std::vector<uint> v_core_cell_pair;
-//        for (uint t = 0; t < n_threads; ++t) {
-//            v_core_cell_pair.insert(v_core_cell_pair.end(), v_core_cell_pairs[t].begin(), v_core_cell_pairs[t].end());
-//        }
-        std::cout << "global counter: " << global_counter << " : "  << std::endl;
-
-        std::vector<std::vector<int>> v_index_stack(n_threads);
-        uint flatten_cnt = 0;
-        // Flatten label trees
-        #pragma omp parallel for reduction(+:flatten_cnt)
-        for (uint t = 0; t < n_threads; ++t) {
-            for (uint i = 0; i < max_clusters; ++i) {
-                if (v_t_c_labels[t][i] == LABEL_CELL) {
-                    continue;
-                }
-                int label = v_t_c_labels[t][i];
-                while (v_t_c_labels[t][label] != LABEL_CELL) {
-//                    v_index_stack[t].push_back(label);
-                    label = v_t_c_labels[t][label];
-                }
-//                for (auto &index : v_index_stack[t]) {
-                v_t_c_labels[t][i] = label;
-                ++flatten_cnt;
-//                }
-//                v_index_stack[t].clear();
-            }
-        }
-        std::cout << "Flatten cnt: " << flatten_cnt << std::endl;
-
-        for (uint t = 0; t < n_threads; ++t) {
-            for (uint i = 0; i < max_clusters; ++i) {
-                if (v_t_c_labels[t][i] != LABEL_CELL) {
-                    assert(v_t_c_labels[t][v_t_c_labels[t][i]] == LABEL_CELL);
-                }
-            }
-        }
-
         std::vector<int> v_labels(max_clusters, LABEL_CELL);
-        #pragma omp parallel for reduction(vec_min: v_labels)
-        for (uint i = 0; i < max_clusters; ++i) {
-            for (uint t = 0; t < n_threads; ++t) {
-                if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
-                    v_labels[i] = v_t_c_labels[t][i];
-                }
-            }
-        }
-        std::vector<int> v_cluster_index;
-        #pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
-        for (uint i = 0; i < max_clusters; ++i) {
-            if (v_labels[i] == LABEL_CELL) {
-                v_cluster_index.push_back(i);
-            }
-        }
-        // TODO sort v_cluster_index
-//        std::iota(v_cluster_index.begin(), v_cluster_index.end(), 0);
-        std::vector<int> v_cluster_label(v_cluster_index.size(), LABEL_CELL);
+        std::vector<int> v_cluster_label;
+        process_labels(v_t_c_labels, v_labels, v_cluster_label, n_threads, max_clusters);
 
-//        #pragma omp parallel for/* reduction(vec_min: v_cluster_label)*/ schedule(dynamic)
-        uint cnt = 0;
-        for (uint i = 0; i < max_clusters; ++i) {
-            if (v_labels[i] != LABEL_CELL) {
-                for (uint t = 0; t < n_threads; ++t) {
-                    if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] != v_labels[i]) {
-                        int label1 = v_labels[i];
-                        while (v_labels[label1] != LABEL_CELL) {
-                            label1 = v_labels[label1];
-                        }
-                        int label2 = v_t_c_labels[t][i];
-                        while (v_labels[label2] != LABEL_CELL) {
-                            label2 = v_labels[label2];
-                        }
-                        if (label1 != label2) {
-                            int index1 = UNASSIGNED, index2 = UNASSIGNED;
-                            for (int index = 0; index < v_cluster_index.size(); ++index) {
-                                if (v_cluster_index[index] == label1)
-                                    index1 = index;
-                                if (v_cluster_index[index] == label2)
-                                    index2 = index;
-                            }
-                            assert(index1 != UNASSIGNED && index2 != UNASSIGNED);
-                            assert(index1 < v_cluster_label.size());
-                            assert(index2 < v_cluster_label.size());
-                            while (v_cluster_label[index1] != LABEL_CELL) {
-                                index1 = v_cluster_label[index1];
-                            }
-                            while (v_cluster_label[index2] != LABEL_CELL) {
-                                index2 = v_cluster_label[index2];
-                            }
-                            if (index1 != index2) {
-                                ++cnt;
-                                if (index1 < index2) {
-                                    v_cluster_label[index1] = index2;
-                                } else if (index2 < index1) {
-                                    v_cluster_label[index2] = index1;
-                                }
-//                                #pragma omp critical
-//                                {
-/*
-                                    while (v_cluster_label[index1] != LABEL_CELL) {
-                                        index1 = v_cluster_label[index1];
-                                    }
-                                    while (v_cluster_label[index2] != LABEL_CELL) {
-                                        index2 = v_cluster_label[index2];
-                                    }
-                                    if (index1 < index2) {
-                                        v_cluster_label[index1] = index2;
-                                        ++cnt;
-                                    } else if (index2 < index1) {
-                                        v_cluster_label[index2] = index1;
-                                        ++cnt;
-                                    }
-                                    */
+//        std::vector<std::vector<int>> v_index_stack(n_threads);
+//        uint flatten_cnt = 0;
+//        // Flatten label trees
+//        #pragma omp parallel for reduction(+:flatten_cnt)
+//        for (uint t = 0; t < n_threads; ++t) {
+//            for (uint i = 0; i < max_clusters; ++i) {
+//                if (v_t_c_labels[t][i] == LABEL_CELL) {
+//                    continue;
+//                }
+//                int label = v_t_c_labels[t][i];
+//                while (v_t_c_labels[t][label] != LABEL_CELL) {
+//                    label = v_t_c_labels[t][label];
+//                }
+//                v_t_c_labels[t][i] = label;
+//                ++flatten_cnt;
+//            }
+//        }
+//        std::cout << "Flatten cnt: " << flatten_cnt << std::endl;
+//
+//        for (uint t = 0; t < n_threads; ++t) {
+//            for (uint i = 0; i < max_clusters; ++i) {
+//                if (v_t_c_labels[t][i] != LABEL_CELL) {
+//                    assert(v_t_c_labels[t][v_t_c_labels[t][i]] == LABEL_CELL);
+//                }
+//            }
+//        }
+//
+//        std::vector<int> v_labels(max_clusters, LABEL_CELL);
+//        #pragma omp parallel for reduction(vec_min: v_labels)
+//        for (uint i = 0; i < max_clusters; ++i) {
+//            for (uint t = 0; t < n_threads; ++t) {
+//                if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
+//                    v_labels[i] = v_t_c_labels[t][i];
+//                }
+//            }
+//        }
+//        std::vector<int> v_cluster_index;
+//        #pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
+//        for (uint i = 0; i < max_clusters; ++i) {
+//            if (v_labels[i] == LABEL_CELL) {
+//                v_cluster_index.push_back(i);
+//            }
+//        }
+//        // TODO sort v_cluster_index
+//        std::vector<int> v_cluster_label(v_cluster_index.size(), LABEL_CELL);
+//
+////        #pragma omp parallel for/* reduction(vec_min: v_cluster_label)*/ schedule(dynamic)
+//        uint cnt = 0;
+//        for (uint i = 0; i < max_clusters; ++i) {
+//            if (v_labels[i] != LABEL_CELL) {
+//                for (uint t = 0; t < n_threads; ++t) {
+//                    if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] != v_labels[i]) {
+//                        int label1 = v_labels[i];
+//                        while (v_labels[label1] != LABEL_CELL) {
+//                            label1 = v_labels[label1];
+//                        }
+//                        int label2 = v_t_c_labels[t][i];
+//                        while (v_labels[label2] != LABEL_CELL) {
+//                            label2 = v_labels[label2];
+//                        }
+//                        if (label1 != label2) {
+//                            int index1 = UNASSIGNED, index2 = UNASSIGNED;
+//                            for (int index = 0; index < v_cluster_index.size(); ++index) {
+//                                if (v_cluster_index[index] == label1)
+//                                    index1 = index;
+//                                if (v_cluster_index[index] == label2)
+//                                    index2 = index;
+//                            }
+//                            assert(index1 != UNASSIGNED && index2 != UNASSIGNED);
+//                            assert(index1 < v_cluster_label.size());
+//                            assert(index2 < v_cluster_label.size());
+//                            while (v_cluster_label[index1] != LABEL_CELL) {
+//                                index1 = v_cluster_label[index1];
+//                            }
+//                            while (v_cluster_label[index2] != LABEL_CELL) {
+//                                index2 = v_cluster_label[index2];
+//                            }
+//                            if (index1 != index2) {
+//                                ++cnt;
+//                                if (index1 < index2) {
+//                                    v_cluster_label[index1] = index2;
+//                                } else if (index2 < index1) {
+//                                    v_cluster_label[index2] = index1;
 //                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        std::cout << "label pair cnt: " << cnt << std::endl;
-
-        uint cluster_no = 0;
-        for (uint i = 0; i < v_cluster_label.size(); ++i) {
-            if (v_cluster_label[i] == LABEL_CELL)
-                ++cluster_no;
-
-        }
-        std::cout << "cluster no: " << cluster_no << std::endl;
-
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//        std::cout << "label pair cnt: " << cnt << std::endl;
         auto time9 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
-            std::cout << "Labels: "
+            std::cout << "Determine Labels: "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(
                               time9 - time8).count()
                       << " milliseconds\n";
@@ -2594,7 +2584,7 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time11 - time2).count()
                       << " milliseconds\n";
         }
-        return calculate_results(v_is_core, total_samples);
+        return calculate_results(v_is_core, v_cluster_label, total_samples);
     }
 
 
