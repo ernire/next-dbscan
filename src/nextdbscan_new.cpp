@@ -543,7 +543,8 @@ namespace nextdbscan {
     }
 
     void calculate_level_cell_bounds(float *v_coords, std::vector<uint> &v_cell_begins,
-            std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps, std::vector<std::vector<float>> &vv_min_cell_dims,
+            std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps,
+            std::vector<std::vector<float>> &vv_min_cell_dims,
             std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept {
         vv_min_cell_dims[l].resize(v_cell_begins.size()*max_d);
         vv_max_cell_dims[l].resize(vv_min_cell_dims[l].size());
@@ -668,60 +669,72 @@ namespace nextdbscan {
     void process_pair_labels(const float *v_coords,
             std::vector<int> &v_t_c_cores,
             std::vector<int> &v_c_index,
-//            std::vector<struct_label> &p_labels,
-            std::vector<std::vector<uint>> &vv_cell_begins,
             std::vector<std::vector<uint>> &vv_cell_ns, std::vector<std::vector<uint>> &vv_index_maps,
-            std::vector<uint> &v_leaf_cell_nns, std::vector<uint8_t> &v_cell_types, std::vector<uint8_t> &v_is_core,
+            std::vector<uint8_t> &v_cell_types, std::vector<uint8_t> &v_is_core,
             const uint c1, const uint c2, const uint l, const uint begin1, const uint begin2, const uint max_d,
             const float e2) noexcept {
-        // Todo move this check up
-        if (v_cell_types[c1] != NC || v_cell_types[c2] != NC) {
-            // Do both cells have cores ?
-            if (v_cell_types[c1] != NC && v_cell_types[c2] != NC) {
-                for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                    uint p1 = vv_index_maps[l][begin1 + k1];
-                    for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                        uint p2 = vv_index_maps[l][begin2 + k2];
-                        if (v_is_core[p1] && v_is_core[p2] && dist_leq(&v_coords[p1 * max_d],
-                                &v_coords[p2 * max_d], max_d, e2)) {
-                            int label1 = v_c_index[p1];
-                            int label2 = v_c_index[p2];
-                            while (v_t_c_cores[label1] != LABEL_CELL) {
-                                label1 = v_t_c_cores[label1];
-                            }
-                            while (v_t_c_cores[label2] != LABEL_CELL) {
-                                label2 = v_t_c_cores[label2];
-                            }
-                            if (label1 != label2) {
+        // Do both cells have cores ?
+        if (v_cell_types[c1] != NC && v_cell_types[c2] != NC) {
+            for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
+                uint p1 = vv_index_maps[l][begin1 + k1];
+                if (!v_is_core[p1]) {
+                    continue;
+                }
+                int label1 = v_c_index[p1];
+                bool flatten = false;
+                while (v_t_c_cores[label1] != LABEL_CELL) {
+                    label1 = v_t_c_cores[label1];
+                    flatten = true;
+                }
+                if (flatten) {
+                    v_c_index[p1] = label1;
+                }
+                for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
+                    uint p2 = vv_index_maps[l][begin2 + k2];
+                    if (v_is_core[p2]) {
+                        int label2 = v_c_index[p2];
+
+                        flatten = false;
+                        while (v_t_c_cores[label2] != LABEL_CELL) {
+                            label2 = v_t_c_cores[label2];
+                            flatten = true;
+                        }
+                        if (flatten) {
+                            v_c_index[p2] = label2;
+                        }
+                        if (label1 != label2) {
+                            if (dist_leq(&v_coords[p1 * max_d],
+                                    &v_coords[p2 * max_d], max_d, e2)) {
                                 if (label1 < label2)
                                     v_t_c_cores[label2] = label1;
                                 else
                                     v_t_c_cores[label1] = label2;
+                                return;
                             }
-                            k2 = vv_cell_ns[l][c2];
-                            k1 = vv_cell_ns[l][c1];
+                        } else {
+                            return;
                         }
                     }
                 }
-            } else {
-                // one NC one not
-                for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                    uint p1 = vv_index_maps[l][begin1 + k1];
-                    if (!v_is_core[p1] && v_c_index[p1] != UNASSIGNED)
+            }
+        } else {
+            // one NC one not
+            for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
+                uint p1 = vv_index_maps[l][begin1 + k1];
+                if (!v_is_core[p1] && v_c_index[p1] != UNASSIGNED)
+                    continue;
+                for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
+                    uint p2 = vv_index_maps[l][begin2 + k2];
+                    if (!v_is_core[p2] && v_c_index[p2] != UNASSIGNED)
                         continue;
-                    for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                        uint p2 = vv_index_maps[l][begin2 + k2];
-                        if (!v_is_core[p2] && v_c_index[p2] != UNASSIGNED)
-                            continue;
-                        if (v_is_core[p1]) {
-                            if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                v_c_index[p2] = v_c_index[p1];
-                            }
-                        } else if (v_is_core[p2]) {
-                            if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                                v_c_index[p1] = v_c_index[p2];
-                                k2 = vv_cell_ns[l][c2];
-                            }
+                    if (v_is_core[p1]) {
+                        if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
+                            v_c_index[p2] = v_c_index[p1];
+                        }
+                    } else if (v_is_core[p2]) {
+                        if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
+                            v_c_index[p1] = v_c_index[p2];
+                            k2 = vv_cell_ns[l][c2];
                         }
                     }
                 }
@@ -1966,11 +1979,11 @@ namespace nextdbscan {
                         v_bucket[n_threads-1].push_back(val);
                     }
                 }
-                std::cout << "bucket sizes: ";
-                for (uint t = 0; t < n_threads; ++t) {
-                    std::cout << v_bucket[t].size() << " ";
-                }
-                std::cout << std::endl;
+//                std::cout << "bucket sizes: ";
+//                for (uint t = 0; t < n_threads; ++t) {
+//                    std::cout << v_bucket[t].size() << " ";
+//                }
+//                std::cout << std::endl;
             }
             #pragma omp barrier
             std::sort(v_bucket[tid].begin(), v_bucket[tid].end(),[&](const auto &i1, const auto &i2) -> bool {
@@ -2071,9 +2084,11 @@ namespace nextdbscan {
                                 max_d, e2, m, c1, begin1, c2, begin2);
                     }
                 } else {
-                    process_pair_labels(v_coords, v_t_c_cores,v_c_index, /*v_labels,*/vv_cell_begin,
-                            vv_cell_ns, vv_index_map,
-                            v_leaf_cell_nns, v_cell_types, v_is_core, c1, c2, l, begin1, begin2, max_d, e2);
+                    if (v_cell_types[c1] != NC || v_cell_types[c2] != NC) {
+                        process_pair_labels(v_coords, v_t_c_cores, v_c_index, vv_cell_ns,
+                                vv_index_map, v_cell_types, v_is_core, c1, c2, l,
+                                begin1, begin2, max_d, e2);
+                    }
                 }
             } else {
                 for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
@@ -2210,10 +2225,6 @@ namespace nextdbscan {
             std::vector<std::vector<bool>> &vv_range_table,
             std::vector<std::vector<uint>> &vv_range_counts,
             const uint max_d, const uint n_threads) noexcept {
-//        #pragma omp parallel for
-//        for (uint i = 0; i < vv_cell_begin[0].size(); ++i) {
-//            v_leaf_cell_nns[i] = vv_cell_ns[0][i];
-//        }
         uint max_points_in_leaf_cell = 0;
         #pragma omp parallel for reduction(max: max_points_in_leaf_cell)
         for (uint i = 0; i < vv_cell_ns.size(); ++i) {
@@ -2438,7 +2449,7 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
         const uint max_clusters = infer_types_and_init_clusters_omp(vv_index_map, vv_cell_begin, vv_cell_ns,
-                v_leaf_cell_nns,v_point_nns,v_cell_types, v_is_core, v_c_index, /*v_c_cores,*/ m, n_threads);
+                v_leaf_cell_nns,v_point_nns,v_cell_types, v_is_core, v_c_index, m, n_threads);
         std::cout << "Maximum number of clusters: " << max_clusters << std::endl;
 
         auto time8 = std::chrono::high_resolution_clock::now();
