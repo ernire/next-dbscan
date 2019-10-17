@@ -1881,10 +1881,15 @@ namespace nextdbscan {
             const ull *dims_mult, const uint n_threads) noexcept {
         vv_index_map[l].resize(size);
         v_value_map.resize(size);
-        uint shared_new_cells = 0;
+        uint unique_new_cells = 0;
         auto v_omp_sizes = std::make_unique<uint[]>(n_threads);
         auto v_omp_offsets = std::make_unique<uint[]>(n_threads);
+        bool is_parallel_sort = true;
         deep_io::get_blocks_meta(v_omp_sizes, v_omp_offsets, size, n_threads);
+        for (uint t = 0; t < n_threads; ++t) {
+            if (v_omp_sizes[t] == 0)
+                is_parallel_sort = false;
+        }
         // TODO move outside
         std::vector<std::vector<uint>> v_bucket(n_threads);
         std::vector<ull> v_bucket_seperator;
@@ -1917,73 +1922,86 @@ namespace nextdbscan {
                 v_value_map[v_omp_offsets[tid] + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
                         dims_mult, max_d, level_eps);
             }
+
+            if (is_parallel_sort) {
 //            #pragma omp barrier
-            std::sort(std::next(vv_index_map[l].begin(), v_omp_offsets[tid]),
-                    std::next(vv_index_map[l].begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
-                    [&](const auto &i1, const auto &i2) -> bool {
-                return v_value_map[i1] < v_value_map[i2];
-            });
-            #pragma omp barrier
-            #pragma omp single
-            {
-                for (uint t = 0; t < n_threads; ++t) {
-                    for (uint i = 0; i < n_threads-1; ++i) {
-                        uint index = v_omp_offsets[t] + ((v_omp_sizes[t]/n_threads) * (i+1));
-                        v_bucket_seperator_tmp.push_back(v_value_map[vv_index_map[l][index]]);
+                std::sort(std::next(vv_index_map[l].begin(), v_omp_offsets[tid]),
+                        std::next(vv_index_map[l].begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
+                        [&](const auto &i1, const auto &i2) -> bool {
+                            return v_value_map[i1] < v_value_map[i2];
+                        });
+                #pragma omp barrier
+                #pragma omp single
+                {
+                    for (uint t = 0; t < n_threads; ++t) {
+                        for (uint i = 0; i < n_threads - 1; ++i) {
+                            uint index = v_omp_offsets[t] + ((v_omp_sizes[t] / n_threads) * (i + 1));
+                            v_bucket_seperator_tmp.push_back(v_value_map[vv_index_map[l][index]]);
+                        }
                     }
-                }
-                std::sort(v_bucket_seperator_tmp.begin(), v_bucket_seperator_tmp.end());
+                    std::sort(v_bucket_seperator_tmp.begin(), v_bucket_seperator_tmp.end());
 //                if (l == 0) {
 //                    print_array("aggregated bucket seperators: ", &v_bucket_seperator_tmp[0],
 //                            v_bucket_seperator_tmp.size());
 //                }
-                for (uint i = n_threads/2; i < v_bucket_seperator_tmp.size(); i += n_threads) {
-                    if (v_bucket_seperator.empty()) {
-                        v_bucket_seperator.push_back(v_bucket_seperator_tmp[i]);
-                    } else if (v_bucket_seperator.size() == n_threads-2) {
-                        v_bucket_seperator.push_back(v_bucket_seperator_tmp[i-1]);
-                    } else {
-                        v_bucket_seperator.push_back((v_bucket_seperator_tmp[i-1] + v_bucket_seperator_tmp[i]) / 2);
+                    for (uint i = n_threads / 2; i < v_bucket_seperator_tmp.size(); i += n_threads) {
+                        if (v_bucket_seperator.empty()) {
+                            v_bucket_seperator.push_back(v_bucket_seperator_tmp[i]);
+                        } else if (v_bucket_seperator.size() == n_threads - 2) {
+                            v_bucket_seperator.push_back(v_bucket_seperator_tmp[i - 1]);
+                        } else {
+                            v_bucket_seperator.push_back(
+                                    (v_bucket_seperator_tmp[i - 1] + v_bucket_seperator_tmp[i]) / 2);
+                        }
                     }
-                }
-//                if (l == 0) {
+//                if (tid == 0) {
 //                    print_array("Selected bucket seperators: ", &v_bucket_seperator[0],
 //                            v_bucket_seperator.size());
 //                }
-                bool is_inserted;
-                for (auto &val : vv_index_map[l]) {
-                    is_inserted = false;
-                    for (uint i = 0; i < n_threads-1; ++i) {
-                        if (v_value_map[val] < v_bucket_seperator[i]) {
-                            v_bucket[i].push_back(val);
-                            i = n_threads-1;
-                            is_inserted = true;
+                    bool is_inserted;
+                    for (auto &val : vv_index_map[l]) {
+                        is_inserted = false;
+                        for (uint i = 0; i < n_threads - 1; ++i) {
+                            if (v_value_map[val] < v_bucket_seperator[i]) {
+                                v_bucket[i].push_back(val);
+                                i = n_threads - 1;
+                                is_inserted = true;
+                            }
+                        }
+                        if (!is_inserted) {
+                            v_bucket[n_threads - 1].push_back(val);
                         }
                     }
-                    if (!is_inserted) {
-                        v_bucket[n_threads-1].push_back(val);
-                    }
-                }
-//                std::cout << "bucket sizes: ";
-//                for (uint t = 0; t < n_threads; ++t) {
-//                    std::cout << v_bucket[t].size() << " ";
-//                }
-//                std::cout << std::endl;
-            }
-            #pragma omp barrier
-            std::sort(v_bucket[tid].begin(), v_bucket[tid].end(),[&](const auto &i1, const auto &i2) -> bool {
-                        return v_value_map[i1] < v_value_map[i2];
-                    });
+//                    std::cout << "bucket sizes: ";
+//                    for (uint t = 0; t < n_threads; ++t) {
+//                        std::cout << v_bucket[t].size() << " ";
+//                    }
+//                    std::cout << std::endl;
+                } // end single
+                #pragma omp barrier
+                std::sort(v_bucket[tid].begin(), v_bucket[tid].end(), [&](const auto &i1, const auto &i2) -> bool {
+                    return v_value_map[i1] < v_value_map[i2];
+                });
 
-            #pragma omp barrier
-            #pragma omp single
-            {
-                for (uint t = 1; t < n_threads; ++t) {
-                    v_bucket[0].insert(v_bucket[0].end(), v_bucket[t].begin(), v_bucket[t].end());
+                #pragma omp barrier
+                #pragma omp single
+                {
+                    for (uint t = 1; t < n_threads; ++t) {
+                        v_bucket[0].insert(v_bucket[0].end(), v_bucket[t].begin(), v_bucket[t].end());
+                    }
+                    vv_index_map[l].clear();
+                    vv_index_map[l].insert(vv_index_map[l].end(), std::make_move_iterator(v_bucket[0].begin()),
+                            std::make_move_iterator(v_bucket[0].end()));
                 }
-                vv_index_map[l].clear();
-                vv_index_map[l].insert(vv_index_map[l].end(), std::make_move_iterator(v_bucket[0].begin()),
-                        std::make_move_iterator(v_bucket[0].end()));
+            } else if (!is_parallel_sort) {
+                #pragma omp barrier
+                #pragma omp single
+                {
+                    std::sort(vv_index_map[l].begin(), vv_index_map[l].end(),
+                            [&](const auto &i1, const auto &i2) -> bool {
+                                return v_value_map[i1] < v_value_map[i2];
+                            });
+                }
             }
 
             #pragma omp barrier
@@ -2010,17 +2028,13 @@ namespace nextdbscan {
                     }
                 }
                 #pragma omp atomic
-                shared_new_cells += new_cells;
-//                #pragma omp barrier
-//                #pragma omp single
-//                {
-
-//                }
+                unique_new_cells += new_cells;
             }
         } // end parallel
 
-        vv_cell_begin[l].resize(shared_new_cells);
-        v_cell_ns.resize(shared_new_cells);
+//        std::cout << "level: " << l << " new cells: " << unique_new_cells << std::endl;
+        vv_cell_begin[l].resize(unique_new_cells);
+        v_cell_ns.resize(unique_new_cells);
         vv_cell_begin[l][0] = 0;
 
         uint cell_cnt = 1;
@@ -2033,10 +2047,10 @@ namespace nextdbscan {
                 ++cell_cnt;
             }
         }
-        assert(cell_cnt == shared_new_cells);
+        assert(cell_cnt == unique_new_cells);
         v_cell_ns[cell_cnt-1] = v_value_map.size() - vv_cell_begin[l][cell_cnt-1];
 
-        return shared_new_cells;
+        return unique_new_cells;
     }
 
     void process_pair_stack(const float *v_coords, std::vector<int> &v_t_c_cores, std::vector<int> &v_c_index,
