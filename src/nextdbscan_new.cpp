@@ -121,7 +121,7 @@ namespace nextdbscan {
         }
     }
 
-    inline void calc_dims_mult(ull *dims_mult, const uint max_d, const std::unique_ptr<float[]> &min_bounds,
+    void calc_dims_mult(ull *dims_mult, const uint max_d, const std::unique_ptr<float[]> &min_bounds,
             const std::unique_ptr<float[]> &max_bounds, const float e_inner) noexcept {
         std::vector<uint> dims;
         dims.resize(max_d);
@@ -597,7 +597,8 @@ namespace nextdbscan {
     }
 
     int determine_data_boundaries(std::unique_ptr<float[]> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
-            std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint node_offset, const uint max_d, const float e_inner) {
+            std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint node_offset, const uint max_d,
+            const float e_inner) noexcept {
         float max_limit = INT32_MIN;
         calc_bounds(v_coords, n, &v_min_bounds[0], &v_max_bounds[0], max_d, node_offset);
 #ifdef MPI_ON
@@ -608,6 +609,7 @@ namespace nextdbscan {
         std::copy(&v_global_min_bounds[0], &v_global_min_bounds[max_d], &v_min_bounds[0]);
         std::copy(&v_global_max_bounds[0], &v_global_max_bounds[max_d], &v_max_bounds[0]);
 #endif
+        #pragma omp parallel for reduction(max: max_limit)
         for (uint d = 0; d < max_d; d++) {
             if (v_max_bounds[d] - v_min_bounds[d] > max_limit)
                 max_limit = v_max_bounds[d] - v_min_bounds[d];
@@ -1544,6 +1546,7 @@ namespace nextdbscan {
         const auto e_inner = (e / 2);
         auto v_eps_levels = std::make_unique<float[]>(max_levels);
         auto v_dims_mult = std::make_unique<ull[]>(max_levels * max_d);
+        #pragma omp parallel for
         for (uint l = 0; l < max_levels; l++) {
             v_eps_levels[l] = (e_inner * powf(2, l));
             calc_dims_mult(&v_dims_mult[l*max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
@@ -1581,24 +1584,6 @@ namespace nextdbscan {
         }
 #endif
     }
-
-    /*
-        std::vector<std::vector<std::vector<uint>>> vvv_index_maps(n_cores);
-        std::vector<std::vector<std::vector<uint>>> vvv_cell_begins(n_cores);
-        std::vector<std::vector<std::vector<uint>>> vvv_cell_ns(n_cores);
-        std::vector<std::vector<std::vector<float>>> vvv_min_cell_dims(n_cores);
-        std::vector<std::vector<std::vector<float>>> vvv_max_cell_dims(n_cores);
-         // Tree
-        std::vector<std::vector<struct_label>> vv_labels(n_cores);
-        std::vector<std::vector<bool>> vv_is_core(n_cores);
-        std::vector<std::vector<uint>> vv_point_nns(n_cores);
-        std::vector<std::vector<uint>> vv_leaf_cell_nns(n_cores);
-        std::vector<std::vector<uint8_t>> vv_cell_types(n_cores);
-        std::vector<cell_meta_3> stacks3[n_threads];
-        std::vector<std::vector<bool>> vv_range_tables(n_threads);
-        std::vector<cell_meta_5> v_mult_tree_tasks;
-        auto v_p_coords = std::make_unique<float*[]>(n_cores);
-     */
 
     void initalize_memory_omp(std::unique_ptr<float[]> &v_coords,
             std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
@@ -2233,6 +2218,7 @@ namespace nextdbscan {
                 max_points_in_leaf_cell = vv_cell_ns[i];
             }
         }
+        #pragma omp parallel for
         for (uint t = 0; t < n_threads; ++t) {
             vv_stacks3[t].reserve(vv_cell_ns.size() * (uint) std::max((int) logf(max_d), 1));
             vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
@@ -2270,7 +2256,7 @@ namespace nextdbscan {
 //                }
 //            }
 //        }
-        #pragma omp parallel for reduction(vec_min: v_labels)
+        #pragma omp parallel for
         for (uint i = 0; i < max_clusters; ++i) {
             for (uint t = 0; t < n_threads; ++t) {
                 if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
@@ -2367,6 +2353,7 @@ namespace nextdbscan {
                 v_node_offsets[node_index], max_d, e_inner);
         auto v_eps_levels = std::make_unique<float[]>(max_levels);
         auto v_dims_mult = std::make_unique<ull[]>(max_levels * max_d);
+        #pragma omp parallel for
         for (uint l = 0; l < max_levels; l++) {
             v_eps_levels[l] = (e_inner * powf(2, l));
             calc_dims_mult(&v_dims_mult[l*max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
