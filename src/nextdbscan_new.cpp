@@ -1877,6 +1877,9 @@ namespace nextdbscan {
             std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<uint> &v_cell_ns,
             std::vector<ull> &v_value_map,
+            std::vector<std::vector<uint>> v_bucket,
+            std::vector<ull> &v_bucket_seperator,
+            std::vector<ull> &v_bucket_seperator_tmp,
             const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
             const ull *dims_mult, const uint n_threads) noexcept {
         vv_index_map[l].resize(size);
@@ -1890,15 +1893,11 @@ namespace nextdbscan {
             if (v_omp_sizes[t] == 0)
                 is_parallel_sort = false;
         }
-        // TODO move outside
-        std::vector<std::vector<uint>> v_bucket(n_threads);
-        std::vector<ull> v_bucket_seperator;
-        v_bucket_seperator.reserve(n_threads);
-        std::vector<ull> v_bucket_seperator_tmp;
-        v_bucket_seperator_tmp.reserve(n_threads * n_threads);
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
+            v_bucket[tid].clear();
+            // TODO optimize
             v_bucket[tid].reserve(v_omp_sizes[tid]);
             std::iota(std::next(vv_index_map[l].begin(), v_omp_offsets[tid]),
                     std::next(vv_index_map[l].begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
@@ -1962,6 +1961,7 @@ namespace nextdbscan {
                     for (auto &val : vv_index_map[l]) {
                         is_inserted = false;
                         for (uint i = 0; i < n_threads - 1; ++i) {
+                            // Use search & copy
                             if (v_value_map[val] < v_bucket_seperator[i]) {
                                 v_bucket[i].push_back(val);
                                 i = n_threads - 1;
@@ -2335,6 +2335,39 @@ namespace nextdbscan {
         std::cout << "label pair cnt: " << cnt << std::endl;
     }
 
+    /*
+float *v_coords, std::vector<uint> &v_cell_begins,
+            std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps,
+            std::vector<std::vector<float>> &vv_min_cell_dims,
+            std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l
+            */
+
+    void index_points(std::unique_ptr<float[]> &v_coords, std::unique_ptr<float[]> &v_eps_levels,
+            std::unique_ptr<ull[]> &v_dims_mult,
+            std::unique_ptr<float[]> &v_min_bounds,
+            std::vector<std::vector<uint>> &vv_index_map,
+            std::vector<std::vector<uint>> &vv_cell_begin,
+            std::vector<std::vector<uint>> &vv_cell_ns,
+            std::vector<std::vector<float>> &vv_min_cell_dim,
+            std::vector<std::vector<float>> &vv_max_cell_dim,
+            const uint offset, uint size, const uint max_d, const uint n_threads, const uint max_levels) noexcept {
+        std::vector<ull> v_value_map;
+        std::vector<std::vector<uint>> v_bucket(n_threads);
+        std::vector<ull> v_bucket_seperator;
+        v_bucket_seperator.reserve(n_threads);
+        std::vector<ull> v_bucket_seperator_tmp;
+        v_bucket_seperator_tmp.reserve(n_threads * n_threads);
+//        uint size = v_node_sizes[node_index];
+        for (int l = 0; l < max_levels; ++l) {
+            size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
+                    vv_cell_ns[l], v_value_map, v_bucket, v_bucket_seperator, v_bucket_seperator_tmp,
+                    size, l, max_d, offset, v_eps_levels[l],
+                    &v_dims_mult[l * max_d], n_threads);
+            calculate_level_cell_bounds(&v_coords[offset*max_d], vv_cell_begin[l], vv_cell_ns[l],
+                    vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
+        }
+    }
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint nodes_no) noexcept {
         // *** READ DATA ***
@@ -2384,15 +2417,9 @@ namespace nextdbscan {
         std::vector<std::vector<uint>> vv_cell_ns(max_levels);
         std::vector<std::vector<float>> vv_min_cell_dim(max_levels);
         std::vector<std::vector<float>> vv_max_cell_dim(max_levels);
-        std::vector<ull> v_value_map;
-        uint size = v_node_sizes[node_index];
-        for (int l = 0; l < max_levels; ++l) {
-            size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map,
-                    vv_cell_begin, vv_cell_ns[l], v_value_map, size, l, max_d,
-                    v_node_offsets[node_index], v_eps_levels[l], &v_dims_mult[l * max_d], n_threads);
-            calculate_level_cell_bounds(&v_coords[v_node_offsets[node_index]*max_d], vv_cell_begin[l], vv_cell_ns[l],
-                    vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
-        }
+        index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map, vv_cell_begin,
+                vv_cell_ns,vv_min_cell_dim, vv_max_cell_dim, v_node_offsets[node_index],
+                v_node_sizes[node_index], max_d, n_threads, max_levels);
         auto time4 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Index and bounds: "
