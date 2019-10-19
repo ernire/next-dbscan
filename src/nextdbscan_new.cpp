@@ -1871,13 +1871,16 @@ namespace nextdbscan {
         std::cout << "work size #2: " << v_tree_tasks.size() << std::endl;
     }
 
-    void sort_indexes(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
+    void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
             std::vector<uint> &v_index_map,
             std::vector<ull> &v_value_map,
             std::vector<std::vector<uint>> &v_bucket,
             std::vector<ull> &v_bucket_seperator,
             std::vector<ull> &v_bucket_seperator_tmp,
+            std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
             const uint tid, const uint n_threads, const uint l, const bool is_parallel_sort) noexcept {
+        v_bucket[tid].clear();
+        v_iterator[tid].clear();
         if (is_parallel_sort) {
             std::sort(std::next(v_index_map.begin(), v_omp_offsets[tid]),
                     std::next(v_index_map.begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
@@ -1887,17 +1890,27 @@ namespace nextdbscan {
             #pragma omp barrier
             #pragma omp single
             {
+                v_bucket_seperator.clear();
+                v_bucket_seperator_tmp.clear();
+
                 for (uint t = 0; t < n_threads; ++t) {
                     for (uint i = 0; i < n_threads - 1; ++i) {
                         uint index = v_omp_offsets[t] + ((v_omp_sizes[t] / n_threads) * (i + 1));
                         v_bucket_seperator_tmp.push_back(v_value_map[v_index_map[index]]);
                     }
                 }
+
+//                for (uint t = 0; t < n_threads; ++t) {
+//                    uint index = v_omp_offsets[t] + (v_omp_sizes[t]/2);
+//                    v_bucket_seperator_tmp.push_back((v_value_map[v_index_map[index]] + v_value_map[v_index_map[index+1]]) / 2);
+//                    v_bucket_seperator_tmp.push_back(v_value_map[v_index_map[index+1]]);
+//                }
                 std::sort(v_bucket_seperator_tmp.begin(), v_bucket_seperator_tmp.end());
 //                if (l == 0) {
 //                    print_array("aggregated bucket seperators: ", &v_bucket_seperator_tmp[0],
 //                            v_bucket_seperator_tmp.size());
 //                }
+
                 for (uint i = n_threads / 2; i < v_bucket_seperator_tmp.size(); i += n_threads) {
                     if (v_bucket_seperator.empty()) {
                         v_bucket_seperator.push_back(v_bucket_seperator_tmp[i]);
@@ -1908,31 +1921,40 @@ namespace nextdbscan {
                                 (v_bucket_seperator_tmp[i - 1] + v_bucket_seperator_tmp[i]) / 2);
                     }
                 }
-//                if (tid == 0) {
+
+//                v_bucket_seperator.push_back(v_bucket_seperator_tmp[1]);
+//                if (l == 0) {
 //                    print_array("Selected bucket seperators: ", &v_bucket_seperator[0],
 //                            v_bucket_seperator.size());
 //                }
-                bool is_inserted;
-                for (auto &val : v_index_map) {
-                    is_inserted = false;
-                    for (uint i = 0; i < n_threads - 1; ++i) {
-                        // Use search & copy
-                        if (v_value_map[val] < v_bucket_seperator[i]) {
-                            v_bucket[i].push_back(val);
-                            i = n_threads - 1;
-                            is_inserted = true;
-                        }
-                    }
-                    if (!is_inserted) {
-                        v_bucket[n_threads - 1].push_back(val);
-                    }
-                }
-//                    std::cout << "bucket sizes: ";
-//                    for (uint t = 0; t < n_threads; ++t) {
-//                        std::cout << v_bucket[t].size() << " ";
-//                    }
-//                    std::cout << std::endl;
             } // end single
+            auto iter_begin = std::next(v_index_map.begin(), v_omp_offsets[tid]);
+            auto iter_end = std::next(v_index_map.begin(), v_omp_offsets[tid] + v_omp_sizes[tid]);
+            v_iterator[tid].push_back(iter_begin);
+            for (auto &separator : v_bucket_seperator) {
+                auto iter = std::lower_bound(
+                        iter_begin,
+                        iter_end,
+                        separator,
+                        [&v_value_map](const auto &i1, const auto &val) -> bool {
+                            return v_value_map[i1] < val;
+                        });
+                v_iterator[tid].push_back(iter);
+            }
+            v_iterator[tid].push_back(std::next(v_index_map.begin(),
+                    v_omp_offsets[tid]+v_omp_sizes[tid]));
+            #pragma omp barrier
+            for (uint t_index = 0; t_index < n_threads; ++t_index) {
+                v_bucket[tid].insert(v_bucket[tid].end(), v_iterator[t_index][tid], v_iterator[t_index][tid+1]);
+            }
+            #pragma omp barrier
+            if (tid == 0) {
+                std::cout << "level " << l << " bucket sizes: ";
+                for (uint t = 0; t < n_threads; ++t) {
+                    std::cout << v_bucket[t].size() << " ";
+                }
+                std::cout << std::endl;
+            }
             #pragma omp barrier
             std::sort(v_bucket[tid].begin(), v_bucket[tid].end(), [&](const auto &i1, const auto &i2) -> bool {
                 return v_value_map[i1] < v_value_map[i2];
@@ -1951,10 +1973,9 @@ namespace nextdbscan {
             #pragma omp barrier
             #pragma omp single
             {
-                std::sort(v_index_map.begin(), v_index_map.end(),
-                        [&](const auto &i1, const auto &i2) -> bool {
-                            return v_value_map[i1] < v_value_map[i2];
-                        });
+                std::sort(v_index_map.begin(), v_index_map.end(),[&](const auto &i1, const auto &i2) -> bool {
+                    return v_value_map[i1] < v_value_map[i2];
+                });
             }
         }
     }
@@ -1968,6 +1989,7 @@ namespace nextdbscan {
             std::vector<std::vector<uint>> &v_bucket,
             std::vector<ull> &v_bucket_seperator,
             std::vector<ull> &v_bucket_seperator_tmp,
+            std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
             const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
             const ull *dims_mult, const uint n_threads) noexcept {
         vv_index_map[l].resize(size);
@@ -2002,8 +2024,8 @@ namespace nextdbscan {
                 v_value_map[v_omp_offsets[tid] + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
                         dims_mult, max_d, level_eps);
             }
-            sort_indexes(v_omp_sizes, v_omp_offsets, vv_index_map[l], v_value_map, v_bucket,
-                    v_bucket_seperator, v_bucket_seperator_tmp, tid, n_threads, l, is_parallel_sort);
+            sort_indexes_omp(v_omp_sizes, v_omp_offsets, vv_index_map[l], v_value_map, v_bucket,
+                    v_bucket_seperator, v_bucket_seperator_tmp, v_iterator, tid, n_threads, l, is_parallel_sort);
             #pragma omp barrier
             if (v_omp_sizes[tid] > 0) {
                 uint new_cells = 1;
@@ -2350,10 +2372,11 @@ namespace nextdbscan {
         v_bucket_seperator.reserve(n_threads);
         std::vector<ull> v_bucket_seperator_tmp;
         v_bucket_seperator_tmp.reserve(n_threads * n_threads);
+        std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
         for (int l = 0; l < max_levels; ++l) {
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_seperator, v_bucket_seperator_tmp,
-                    size, l, max_d, offset, v_eps_levels[l],
+                    v_iterator, size, l, max_d, offset, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
             calculate_level_cell_bounds(&v_coords[offset*max_d], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
@@ -2381,7 +2404,7 @@ namespace nextdbscan {
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
         const auto e_inner = (e / 2);
-
+        const float e2 = e*e;
         // *** INITIALIZE ***
         auto v_node_sizes = std::make_unique<uint[]>(nodes_no);
         auto v_node_offsets = std::make_unique<uint[]>(nodes_no);
@@ -2445,7 +2468,6 @@ namespace nextdbscan {
         std::vector<uint8_t> v_cell_types(vv_cell_ns[0].size(), NC);
         std::vector<uint8_t> v_is_core(v_node_sizes[node_index], 0);
         std::vector<int> v_c_index(v_node_sizes[node_index], UNASSIGNED);
-        const float e2 = e*e;
         std::vector<std::vector<int>> v_t_c_labels(n_threads);
         #pragma omp parallel for schedule(dynamic)
         for (uint i = 0; i < v_tasks.size(); ++i) {
