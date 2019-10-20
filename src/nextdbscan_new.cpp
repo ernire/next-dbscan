@@ -1995,11 +1995,13 @@ namespace nextdbscan {
         vv_index_map[l].resize(size);
         v_value_map.resize(size);
         uint unique_new_cells = 0;
+        uint no_of_cells[n_threads];
         auto v_omp_sizes = std::make_unique<uint[]>(n_threads);
         auto v_omp_offsets = std::make_unique<uint[]>(n_threads);
         bool is_parallel_sort = true;
         deep_io::get_blocks_meta(v_omp_sizes, v_omp_offsets, size, n_threads);
         for (uint t = 0; t < n_threads; ++t) {
+            no_of_cells[t] = 0;
             if (v_omp_sizes[t] == 0)
                 is_parallel_sort = false;
         }
@@ -2029,49 +2031,71 @@ namespace nextdbscan {
             #pragma omp barrier
             if (v_omp_sizes[tid] > 0) {
                 uint new_cells = 1;
-                assert(v_omp_offsets[tid] < vv_index_map[l].size());
+//                assert(v_omp_offsets[tid] < vv_index_map[l].size());
                 uint index = vv_index_map[l][v_omp_offsets[tid]];
-                assert(index < v_value_map.size());
+//                assert(index < v_value_map.size());
                 ull last_value = v_value_map[index];
-                // boundary corrections
+                // boundary correction
                 if (tid > 0) {
-                    assert(v_omp_offsets[tid] > 0);
+//                    assert(v_omp_offsets[tid] > 0);
                     index = vv_index_map[l][v_omp_offsets[tid] - 1];
                     if (v_value_map[index] == last_value)
                         --new_cells;
                 }
                 for (uint i = 1; i < v_omp_sizes[tid]; ++i) {
-                    assert(v_omp_offsets[tid] + i < vv_index_map[l].size());
+//                    assert(v_omp_offsets[tid] + i < vv_index_map[l].size());
                     index = vv_index_map[l][v_omp_offsets[tid] + i];
-                    assert(index < v_value_map.size());
+//                    assert(index < v_value_map.size());
                     if (v_value_map[index] != last_value) {
                         last_value = v_value_map[index];
                         ++new_cells;
                     }
                 }
+                no_of_cells[tid] = new_cells;
                 #pragma omp atomic
                 unique_new_cells += new_cells;
             }
-        } // end parallel
-
-//        std::cout << "level: " << l << " new cells: " << unique_new_cells << std::endl;
-        vv_cell_begin[l].resize(unique_new_cells);
-        v_cell_ns.resize(unique_new_cells);
-        vv_cell_begin[l][0] = 0;
-
-        uint cell_cnt = 1;
-        ull last_value = v_value_map[vv_index_map[l][0]];
-        for (uint i = 1; i < v_value_map.size(); ++i) {
-            if (v_value_map[vv_index_map[l][i]] != last_value) {
-                last_value = v_value_map[vv_index_map[l][i]];
-                vv_cell_begin[l][cell_cnt] = i;
-                v_cell_ns[cell_cnt-1] = vv_cell_begin[l][cell_cnt] - vv_cell_begin[l][cell_cnt-1];
-                ++cell_cnt;
+            #pragma omp barrier
+            #pragma omp single
+            {
+                vv_cell_begin[l].resize(unique_new_cells);
+                v_cell_ns.resize(unique_new_cells);
             }
-        }
-        assert(cell_cnt == unique_new_cells);
-        v_cell_ns[cell_cnt-1] = v_value_map.size() - vv_cell_begin[l][cell_cnt-1];
+            uint cell_offset = 0;
+            for (uint t = 0; t < tid; ++t) {
+                cell_offset += no_of_cells[t];
+            }
 
+            uint index_map_offset = v_omp_offsets[tid];
+            ull last_value = v_value_map[vv_index_map[l][v_omp_offsets[tid]]];
+            // boundary corrections
+            if (tid > 0) {
+//                    assert(v_omp_offsets[tid] > 0);
+//                index = vv_index_map[l][v_omp_offsets[tid] - 1];
+//                if (v_value_map[index] == last_value)
+//                    --new_cells;
+                if (vv_index_map[l][index_map_offset - 1] == last_value) {
+                    while (vv_index_map[l][index_map_offset] == last_value) {
+                        ++index_map_offset;
+                    }
+                    last_value = vv_index_map[l][index_map_offset];
+                }
+            }
+            vv_cell_begin[l][cell_offset] = index_map_offset;
+            uint cell_cnt = 1;
+            for (uint i = index_map_offset; cell_cnt < no_of_cells[tid]; ++i) {
+                if (v_value_map[vv_index_map[l][i]] != last_value) {
+                    last_value = v_value_map[vv_index_map[l][i]];
+                    vv_cell_begin[l][cell_offset+cell_cnt] = i;
+                    ++cell_cnt;
+                }
+            }
+        } // end parallel
+        #pragma omp parallel for
+        for (uint i = 0; i < unique_new_cells-1; ++i) {
+            v_cell_ns[i] = vv_cell_begin[l][i+1] - vv_cell_begin[l][i];
+        }
+        v_cell_ns[unique_new_cells-1] = v_value_map.size() - vv_cell_begin[l][unique_new_cells-1];
         return unique_new_cells;
     }
 
