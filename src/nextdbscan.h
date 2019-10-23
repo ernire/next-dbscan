@@ -21,7 +21,7 @@ namespace nextdbscan {
             unsigned int n_threads,
             const std::string &in_file,
             unsigned int node_index,
-            unsigned int nodes_no) noexcept;
+            unsigned int n_nodes) noexcept;
 
 };
 
