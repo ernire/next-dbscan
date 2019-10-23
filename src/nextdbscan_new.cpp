@@ -31,7 +31,7 @@ SOFTWARE.
 #include <iterator>
 #include <omp.h>
 #include <numeric>
-//#define MPI_ON
+#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -1282,6 +1282,65 @@ namespace nextdbscan {
 
 #ifdef MPI_ON
     template <class T>
+    void mpi_gather_cell_tree(std::vector<std::vector<std::vector<T>>> &vvv_cell_tree,
+            const int max_levels, const int n_nodes, const int node_index, std::vector<T> &v_buffer,
+            MPI_Datatype send_type, const bool is_verbose) {
+        int size[n_nodes];
+        int offset[n_nodes];
+        for (int n = 0; n < n_nodes; ++n) {
+            size[n] = 0;
+            offset[n] = 0;
+        }
+        for (int n = 0; n < n_nodes; ++n) {
+            for (int l = 0; l < max_levels; ++l) {
+                size[n] += vvv_cell_tree[n][l].size();
+            }
+        }
+        offset[0] = 0;
+        for (int n = 1; n < n_nodes; ++n) {
+            offset[n] = offset[n-1] + size[n-1];
+        }
+        int total_size = 0;
+        for (int n = 0; n < n_nodes; ++n) {
+            total_size += size[n];
+        }
+        v_buffer.resize(total_size, INT32_MAX);
+        print_array("Transmit size: ", size, n_nodes);
+        print_array("Transmit offset: ", offset, n_nodes);
+        int index = 0;
+//        std::fill(v_buffer.begin(), v_buffer.end(), INT32_MAX);
+        // TODO make smarter
+        for (int n = 0; n < n_nodes; ++n) {
+            for (int l = 0; l < max_levels; ++l) {
+                for (auto &val : vvv_cell_tree[n][l]) {
+                    assert(index < v_buffer.size());
+                    if (n == node_index) {
+                        v_buffer[index] = val;
+                    }
+                    ++index;
+                }
+            }
+        }
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_buffer[0], size,
+                offset, send_type, MPI_COMM_WORLD);
+        index = 0;
+        for (int n = 0; n < n_nodes; ++n) {
+            for (int l = 0; l < max_levels; ++l) {
+                // TODO skip node index
+                for (int i = 0; i < vvv_cell_tree[n][l].size(); ++i) {
+                    assert(index < v_buffer.size());
+                    assert(v_buffer[index] != (T)INT32_MAX);
+                    vvv_cell_tree[n][l][i] = v_buffer[index];
+                    ++index;
+                }
+            }
+        }
+        assert(index == v_buffer.size());
+    }
+#endif
+
+#ifdef MPI_ON
+    template <class T>
     void mpi_gather_cell_tree(std::vector<std::vector<std::vector<T>>> &vvv_cell_tree, const int n_cores,
             const int max_levels, const int mpi_size, const int n_threads, const int mpi_index,
             MPI_Datatype send_type, const bool is_verbose) {
@@ -1347,10 +1406,61 @@ namespace nextdbscan {
             std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns,
             std::vector<std::vector<std::vector<float>>> &vvv_min_cell_dims,
             std::vector<std::vector<std::vector<float>>> &vvv_max_cell_dims,
-            const int node_index, const int n_nodes, const uint n_threads, const int n_cores, const int max_levels,
+            const int node_index, const int n_nodes, const int max_levels,
             const uint max_d
             ) {
+        // count the number of elements and share it
+        int total_levels = n_nodes * max_levels;
+        auto n_node_level_elem = std::make_unique<int[]>(total_levels);
+        std::fill(&n_node_level_elem[0], &n_node_level_elem[0] + total_levels, 0);
+        uint index = node_index * max_levels;
+        for (uint l = 0; l < max_levels; ++l, ++index) {
+            n_node_level_elem[index] += vvv_index_maps[node_index][l].size();
+        }
+        MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &n_node_level_elem[0], max_levels,
+                MPI_INT, MPI_COMM_WORLD);
 
+//        print_array("cnt merge: ", &n_node_level_elem[0], total_levels);
+        index = 0;
+        for (uint n = 0; n < n_nodes; ++n) {
+            for (uint l = 0; l < max_levels; ++l, ++index) {
+                vvv_index_maps[n][l].resize(n_node_level_elem[index]);
+//                vvv_value_maps[t][l].resize(n_node_level_elem[index]);
+                if (l > 0) {
+                    vvv_cell_begins[n][l-1].resize(n_node_level_elem[index]);
+                    vvv_cell_ns[n][l-1].resize(n_node_level_elem[index]);
+                    vvv_min_cell_dims[n][l-1].resize(n_node_level_elem[index]*max_d);
+                    vvv_max_cell_dims[n][l-1].resize(n_node_level_elem[index]*max_d);
+                }
+            }
+            vvv_cell_begins[n][max_levels-1].resize(1);
+            vvv_cell_ns[n][max_levels-1].resize(1);
+            vvv_min_cell_dims[n][max_levels-1].resize(max_d);
+            vvv_max_cell_dims[n][max_levels-1].resize(max_d);
+        }
+
+        std::vector<uint> v_uint_buffer;
+        std::vector<float> v_float_buffer;
+        std::cout << "index maps" << std::endl;
+        mpi_gather_cell_tree(vvv_index_maps, max_levels, n_nodes, node_index, v_uint_buffer,
+                MPI_UNSIGNED, false);
+        MPI_Barrier(MPI_COMM_WORLD);
+        std::cout << "cell begins" << std::endl;
+        mpi_gather_cell_tree(vvv_cell_begins, max_levels, n_nodes, node_index, v_uint_buffer,
+                MPI_UNSIGNED, false);
+        MPI_Barrier(MPI_COMM_WORLD);
+        std::cout << "cell ns" << std::endl;
+        mpi_gather_cell_tree(vvv_cell_ns, max_levels, n_nodes, node_index, v_uint_buffer,
+                MPI_UNSIGNED, false);
+        MPI_Barrier(MPI_COMM_WORLD);
+        std::cout << "min dims" << std::endl;
+        mpi_gather_cell_tree(vvv_min_cell_dims, max_levels, n_nodes, node_index, v_float_buffer,
+                MPI_FLOAT, false);
+        MPI_Barrier(MPI_COMM_WORLD);
+        std::cout << "max dims" << std::endl;
+        mpi_gather_cell_tree(vvv_max_cell_dims, max_levels, n_nodes, node_index, v_float_buffer,
+                MPI_FLOAT, false);
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     void mpi_cell_trees_merge(std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
@@ -2601,12 +2711,13 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
 #ifdef MPI_ON
+        // Share coordinates
         auto time_mpi1 = std::chrono::high_resolution_clock::now();
         int sizes[n_nodes];
         int offsets[n_nodes];
         for (int i = 0; i < n_nodes; ++i) {
-            sizes[i] = v_node_sizes[i] * max_d;
-            offsets[i] = v_node_offsets[i] * max_d;
+            sizes[i] = (int)v_node_sizes[i] * max_d;
+            offsets[i] = (int)v_node_offsets[i] * max_d;
         }
         MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_coords[0], sizes,
                 offsets, MPI_FLOAT, MPI_COMM_WORLD);
@@ -2694,7 +2805,10 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
 #ifdef MPI_ON
-        mpi_merge_cell_trees();
+        mpi_merge_cell_trees(vvv_index_map, vvv_cell_begin, vvv_cell_ns, vvv_min_cell_dim, vvv_max_cell_dim,
+                node_index, n_nodes, max_levels, max_d);
+        MPI_Barrier(MPI_COMM_WORLD);
+
 #endif
         const uint max_clusters = infer_types_and_init_clusters_omp(vvv_index_map[node_index], vvv_cell_begin[node_index],
                 vvv_cell_ns[node_index], v_leaf_cell_nns, v_point_nns, v_cell_types, v_is_core, v_c_index, m, n_threads);
