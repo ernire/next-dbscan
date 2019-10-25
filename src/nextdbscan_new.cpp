@@ -1306,12 +1306,12 @@ namespace nextdbscan {
         for (uint t = 0; t < n_threads; ++t) {
             v_tasks_t[t].reserve(vv_cell_begin[0].size() / n_threads);
         }
-#pragma omp parallel
+        #pragma omp parallel
         {
             int tid = omp_get_thread_num();
             for (uint l = 1; l < max_levels; ++l) {
                 v_tasks_t[tid].clear();
-#pragma omp for
+                #pragma omp for
                 for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
                     uint begin = vv_cell_begin[l][i];
                     for (uint c1 = 0; c1 < vv_cell_ns[l][i]; ++c1) {
@@ -1322,8 +1322,8 @@ namespace nextdbscan {
                         }
                     }
                 }
-#pragma omp barrier
-#pragma omp single
+                #pragma omp barrier
+                #pragma omp single
                 {
                     v_tmp.clear();
                     for (uint t = 0; t < n_threads; ++t) {
@@ -1331,7 +1331,7 @@ namespace nextdbscan {
                     }
                 }
                 v_tasks_t[tid].clear();
-#pragma omp for
+                #pragma omp for
                 for (uint i = 0; i < v_tmp.size(); ++i) {
                     uint c1_index = v_tmp[i].c1;
                     uint c2_index = v_tmp[i].c2;
@@ -1342,8 +1342,8 @@ namespace nextdbscan {
                         v_tasks_t[tid].push_back(v_tmp[i]);
                     }
                 }
-#pragma omp barrier
-#pragma omp single
+                #pragma omp barrier
+                #pragma omp single
                 {
                     for (uint t = 0; t < n_threads; ++t) {
                         v_tasks.insert(v_tasks.end(), v_tasks_t[t].begin(), v_tasks_t[t].end());
@@ -1362,7 +1362,7 @@ namespace nextdbscan {
             const uint max_d, const uint n_nodes, const uint n_threads, const uint node_index) noexcept {
         uint max_points_in_leaf_cell = 0;
         for (uint n = 0; n < n_nodes; ++n) {
-#pragma omp parallel for reduction(max: max_points_in_leaf_cell)
+            #pragma omp parallel for reduction(max: max_points_in_leaf_cell)
             for (uint i = 0; i < vvv_cell_ns[n][0].size(); ++i) {
                 if (n == node_index)
                     vv_leaf_cell_nn[n][i] = vvv_cell_ns[n][0][i];
@@ -1371,7 +1371,7 @@ namespace nextdbscan {
                 }
             }
         }
-#pragma omp parallel for
+        #pragma omp parallel for
         for (uint t = 0; t < n_threads; ++t) {
             vv_stacks3[t].reserve(vvv_cell_ns[0][0].size() * (uint) std::max((int) logf(max_d), 1));
             vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
@@ -1386,7 +1386,7 @@ namespace nextdbscan {
         std::vector<std::vector<int>> v_index_stack(n_threads);
         uint flatten_cnt = 0;
         // Flatten label trees
-#pragma omp parallel for reduction(+:flatten_cnt)
+        #pragma omp parallel for reduction(+:flatten_cnt)
         for (uint t = 0; t < n_threads; ++t) {
             for (uint i = 0; i < max_clusters; ++i) {
                 if (v_t_c_labels[t][i] == LABEL_CELL) {
@@ -1409,7 +1409,7 @@ namespace nextdbscan {
 //                }
 //            }
 //        }
-#pragma omp parallel for
+        #pragma omp parallel for
         for (uint i = 0; i < max_clusters; ++i) {
             for (uint t = 0; t < n_threads; ++t) {
                 if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
@@ -1418,7 +1418,7 @@ namespace nextdbscan {
             }
         }
         std::vector<int> v_cluster_index;
-#pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
+        #pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
         for (uint i = 0; i < max_clusters; ++i) {
             if (v_labels[i] == LABEL_CELL) {
                 v_cluster_index.push_back(i);
@@ -1512,6 +1512,7 @@ namespace nextdbscan {
             std::vector<std::vector<std::vector<uint>>> &vvv_cell_ns,
             std::vector<std::vector<cell_meta_3>> &vv_stacks3,
             std::vector<std::vector<bool>> &vv_range_table,
+            // TODO implement the range counts
             std::vector<std::vector<uint>> &vv_range_counts,
             std::vector<std::vector<uint>> &vv_leaf_cell_nn,
             std::vector<std::vector<uint>> &vv_point_nn,
@@ -1529,9 +1530,8 @@ namespace nextdbscan {
                 MPI_UNSIGNED, false);
         mpi_sum_vectors(vv_leaf_cell_nn, v_payload, v_sink_cells, v_sink_cells, n_nodes,
                 MPI_UNSIGNED, false);
-
-        // TODO dynamic level and parallelize
-        uint level = max_levels - 5;
+        int mod = n_nodes == 2 ? 5 : 4;
+        int level = std::max((int)max_levels - mod, 0);
         std::vector<cell_meta_5> v_pair_task;
         v_pair_task.reserve(vvv_cell_ns[0][level].size() * n_nodes);
         int cnt = 0;
@@ -1561,11 +1561,10 @@ namespace nextdbscan {
                     vv_leaf_cell_nn[n1], vv_leaf_cell_nn[n2], vv_point_nn[n1], vv_point_nn[n2],
                     vv_stacks3[tid], vv_range_table[tid], max_d, m, e, e2, true);
         }
-        std::vector<uint> v_sink_cells2;
-        std::vector<uint> v_sink_points2;
-        mpi_sum_vectors(vv_point_nn, v_payload, v_sink_points2, v_sink_points, n_nodes,
+        std::vector<uint> v_sink;
+        mpi_sum_vectors(vv_point_nn, v_payload, v_sink, v_sink_points, n_nodes,
                 MPI_UNSIGNED, true);
-        mpi_sum_vectors(vv_leaf_cell_nn, v_payload, v_sink_cells2, v_sink_cells, n_nodes,
+        mpi_sum_vectors(vv_leaf_cell_nn, v_payload, v_sink, v_sink_cells, n_nodes,
                 MPI_UNSIGNED, true);
     }
 
