@@ -71,7 +71,7 @@ namespace nextdbscan {
             min_bounds[d] = INT32_MAX;
             max_bounds[d] = INT32_MIN;
         }
-        #pragma omp parallel for reduction(max:max_bounds[:max_d]) reduction(min:min_bounds[:max_d])
+#pragma omp parallel for reduction(max:max_bounds[:max_d]) reduction(min:min_bounds[:max_d])
         for (uint i = 0; i < n; i++) {
             size_t index = (i + node_offset) * max_d;
             for (uint d = 0; d < max_d; d++) {
@@ -118,15 +118,15 @@ namespace nextdbscan {
         return cell_index;
     }
 
-    void vector_min(std::vector<int>& omp_in, std::vector<int>& omp_out) noexcept {
+    void vector_min(std::vector<int> &omp_in, std::vector<int> &omp_out) noexcept {
         for (int i = 0; i < omp_out.size(); ++i) {
             omp_out[i] = std::min(omp_in[i], omp_out[i]);
         }
     }
 
-    #pragma omp declare reduction(vec_min: std::vector<int>: vector_min(omp_in, omp_out)) initializer(omp_priv=omp_orig)
-    #pragma omp declare reduction(vec_merge_int: std::vector<int>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) initializer(omp_priv=omp_orig)
-    #pragma omp declare reduction(vec_merge_cell_3: std::vector<cell_meta_3>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) initializer(omp_priv=omp_orig)
+#pragma omp declare reduction(vec_min: std::vector<int>: vector_min(omp_in, omp_out)) initializer(omp_priv=omp_orig)
+#pragma omp declare reduction(vec_merge_int: std::vector<int>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) initializer(omp_priv=omp_orig)
+#pragma omp declare reduction(vec_merge_cell_3: std::vector<cell_meta_3>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) initializer(omp_priv=omp_orig)
 //    #pragma omp declare reduction(vec_merge_uint: std::vector<uint>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) initializer(omp_priv=omp_orig)
 
     inline bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
@@ -192,9 +192,9 @@ namespace nextdbscan {
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
                 uint p2 = v_index_maps_2[begin2 + k2];
                 if (v_range_table[index]) {
-                    #pragma omp atomic
+#pragma omp atomic
                     ++v_point_nps_1[p1];
-                    #pragma omp atomic
+#pragma omp atomic
                     ++v_point_nps_2[p2];
                 }
             }
@@ -207,8 +207,8 @@ namespace nextdbscan {
         uint size1 = v_cell_ns_level[c1];
         uint size2 = v_cell_ns_level[c2];
         uint index = 0;
-        uint total_size = size1*size2;
-        std::fill(v_range_table.begin(), v_range_table.begin()+total_size, false);
+        uint total_size = size1 * size2;
+        std::fill(v_range_table.begin(), v_range_table.begin() + total_size, false);
         for (uint k1 = 0; k1 < size1; ++k1) {
             uint p1 = v_index_map_level[begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
@@ -233,8 +233,8 @@ namespace nextdbscan {
             if (v_range_cnt[k] < min_change)
                 min_change = v_range_cnt[k];
         }
-        if (min_change> 0) {
-            #pragma omp atomic
+        if (min_change > 0) {
+#pragma omp atomic
             v_cell_nps[c] += min_change;
         }
         for (uint k = 0; k < size; ++k) {
@@ -242,7 +242,7 @@ namespace nextdbscan {
                 v_range_cnt[k] -= min_change;
             if (v_range_cnt[k] > 0) {
                 uint p = v_index_map_level[begin + k];
-                #pragma omp atomic
+#pragma omp atomic
                 v_point_nps[p] += v_range_cnt[k];
             }
         }
@@ -255,7 +255,7 @@ namespace nextdbscan {
             const bool is_update1, const bool is_update2) noexcept {
         uint size1 = v_cell_ns_level[c1];
         uint size2 = v_cell_ns_level[c2];
-        std::fill(v_range_count.begin(), std::next(v_range_count.begin() + (size1+size2)), 0);
+        std::fill(v_range_count.begin(), std::next(v_range_count.begin() + (size1 + size2)), 0);
         uint index = 0;
         for (uint k1 = 0; k1 < size1; ++k1) {
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
@@ -263,7 +263,7 @@ namespace nextdbscan {
                     if (is_update1)
                         ++v_range_count[k1];
                     if (is_update2)
-                        ++v_range_count[size1+k2];
+                        ++v_range_count[size1 + k2];
                 }
             }
         }
@@ -289,11 +289,11 @@ namespace nextdbscan {
                 max_d, e2);
         if (all_range_check) {
             if (v_cell_nps[c1] < m) {
-                #pragma omp atomic
+#pragma omp atomic
                 v_cell_nps[c1] += v_cell_ns[c2];
             }
             if (v_cell_nps[c2] < m) {
-                #pragma omp atomic
+#pragma omp atomic
                 v_cell_nps[c2] += v_cell_ns[c1];
             }
         } else {
@@ -326,7 +326,7 @@ namespace nextdbscan {
         result res{0, 0, 0, n, new int[n]};
 
         uint sum = 0;
-        #pragma omp parallel for reduction(+:sum)
+#pragma omp parallel for reduction(+:sum)
         for (uint n = 0; n < vv_is_core.size(); ++n) {
             for (auto &val : vv_is_core[n]) {
                 if (val)
@@ -335,7 +335,7 @@ namespace nextdbscan {
         }
         res.core_count = sum;
         sum = 0;
-        #pragma omp parallel for reduction(+:sum)
+#pragma omp parallel for reduction(+:sum)
         for (uint i = 0; i < v_cluster_label.size(); ++i) {
             if (v_cluster_label[i] == LABEL_CELL)
                 ++sum;
@@ -344,7 +344,7 @@ namespace nextdbscan {
         res.clusters = sum;
 
         uint &noise = res.noise;
-        #pragma omp parallel for reduction(+: noise)
+#pragma omp parallel for reduction(+: noise)
         for (int i = 0; i < n; i++) {
             if (v_labels[i] == UNASSIGNED) {
                 ++noise;
@@ -441,11 +441,11 @@ namespace nextdbscan {
             std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps,
             std::vector<std::vector<float>> &vv_min_cell_dims,
             std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept {
-        vv_min_cell_dims[l].resize(v_cell_begins.size()*max_d);
+        vv_min_cell_dims[l].resize(v_cell_begins.size() * max_d);
         vv_max_cell_dims[l].resize(vv_min_cell_dims[l].size());
         float *coord_min = nullptr, *coord_max = nullptr;
 
-        #pragma omp parallel for private(coord_min, coord_max)
+#pragma omp parallel for private(coord_min, coord_max)
         for (uint i = 0; i < v_cell_begins.size(); i++) {
             uint begin = v_cell_begins[i];
             uint coord_offset = 0;
@@ -454,35 +454,35 @@ namespace nextdbscan {
                 coord_min = &v_coords[coord_offset];
                 coord_max = &v_coords[coord_offset];
             } else {
-                coord_min = &vv_min_cell_dims[l-1][v_index_maps[begin]*max_d];
-                coord_max = &vv_max_cell_dims[l-1][v_index_maps[begin]*max_d];
+                coord_min = &vv_min_cell_dims[l - 1][v_index_maps[begin] * max_d];
+                coord_max = &vv_max_cell_dims[l - 1][v_index_maps[begin] * max_d];
             }
-            std::copy(coord_min, coord_min + max_d, &vv_min_cell_dims[l][i*max_d]);
-            std::copy(coord_max, coord_max + max_d, &vv_max_cell_dims[l][i*max_d]);
+            std::copy(coord_min, coord_min + max_d, &vv_min_cell_dims[l][i * max_d]);
+            std::copy(coord_max, coord_max + max_d, &vv_max_cell_dims[l][i * max_d]);
 
             for (uint j = 1; j < v_cell_ns[i]; j++) {
                 uint coord_offset_inner = 0;
                 if (l == 0) {
-                    coord_offset_inner = v_index_maps[begin+j] * max_d;
+                    coord_offset_inner = v_index_maps[begin + j] * max_d;
                     coord_min = &v_coords[coord_offset_inner];
                     coord_max = &v_coords[coord_offset_inner];
                 } else {
-                    coord_min = &vv_min_cell_dims[l-1][v_index_maps[begin+j]*max_d];
-                    coord_max = &vv_max_cell_dims[l-1][v_index_maps[begin+j]*max_d];
+                    coord_min = &vv_min_cell_dims[l - 1][v_index_maps[begin + j] * max_d];
+                    coord_max = &vv_max_cell_dims[l - 1][v_index_maps[begin + j] * max_d];
                 }
                 for (uint d = 0; d < max_d; d++) {
-                    if (coord_min[d] < vv_min_cell_dims[l][i*max_d+d]) {
-                        vv_min_cell_dims[l][i*max_d+d] = coord_min[d];
+                    if (coord_min[d] < vv_min_cell_dims[l][i * max_d + d]) {
+                        vv_min_cell_dims[l][i * max_d + d] = coord_min[d];
                     }
-                    if (coord_max[d] > vv_max_cell_dims[l][i*max_d+d]) {
-                        vv_max_cell_dims[l][i*max_d+d] = coord_max[d];
+                    if (coord_max[d] > vv_max_cell_dims[l][i * max_d + d]) {
+                        vv_max_cell_dims[l][i * max_d + d] = coord_max[d];
                     }
                 }
             }
         }
     }
 
-    template <class T>
+    template<class T>
     void print_array(const std::string &name, T *arr, const uint max_d) noexcept {
         std::cout << name << ": ";
         for (int i = 0; i < max_d; ++i) {
@@ -504,7 +504,7 @@ namespace nextdbscan {
         std::copy(&v_global_min_bounds[0], &v_global_min_bounds[max_d], &v_min_bounds[0]);
         std::copy(&v_global_max_bounds[0], &v_global_max_bounds[max_d], &v_max_bounds[0]);
 #endif
-        #pragma omp parallel for reduction(max: max_limit)
+#pragma omp parallel for reduction(max: max_limit)
         for (uint d = 0; d < max_d; d++) {
             if (v_max_bounds[d] - v_min_bounds[d] > max_limit)
                 max_limit = v_max_bounds[d] - v_min_bounds[d];
@@ -592,9 +592,9 @@ namespace nextdbscan {
             std::vector<uint> &v_index_maps_2, std::vector<bool> &v_range_table, const uint begin1, const uint begin2,
             const uint size1, const uint size2, const uint max_d, const float e2) noexcept {
         uint index = 0;
-        uint total_size = size1*size2;
+        uint total_size = size1 * size2;
         assert(total_size < v_range_table.size());
-        std::fill(v_range_table.begin(), v_range_table.begin()+total_size, false);
+        std::fill(v_range_table.begin(), v_range_table.begin() + total_size, false);
         for (uint k1 = 0; k1 < size1; ++k1) {
             uint p1 = v_index_maps_1[begin1 + k1];
             for (uint k2 = 0; k2 < size2; ++k2, ++index) {
@@ -668,7 +668,7 @@ namespace nextdbscan {
                     uint c1_next = vv_index_maps_1[l][begin1 + k1];
                     for (uint j = 0; j < vv_cell_ns_2[l][c2]; ++j) {
                         uint c2_next = vv_index_maps_2[l][begin2 + j];
-                        stack.emplace_back(l-1, c1_next, c2_next);
+                        stack.emplace_back(l - 1, c1_next, c2_next);
                     }
                 }
             }
@@ -678,7 +678,7 @@ namespace nextdbscan {
 #ifdef MPI_ON
 
 
-    template <class T>
+    template<class T>
     void mpi_sum_vectors(std::vector<std::vector<T>> &vv_vector, std::vector<T> &v_payload,
             std::vector<T> &v_sink, std::vector<T> &v_additive, const int n_nodes,
             MPI_Datatype send_type, const bool is_additive) noexcept {
@@ -690,7 +690,7 @@ namespace nextdbscan {
             size[n] = vv_vector[n].size();
             send_cnt += size[n];
             if (n > 0) {
-                offset[n] = offset[n-1] + size[n-1];
+                offset[n] = offset[n - 1] + size[n - 1];
             }
         }
         if (v_payload.empty()) {
@@ -699,16 +699,16 @@ namespace nextdbscan {
         if (v_sink.empty()) {
             v_sink.resize(send_cnt);
         }
-        // Use the offset with OMP
+        // TODO Use the offset with OMP
         int index = 0;
         for (int n = 0; n < n_nodes; ++n) {
             for (auto &val : vv_vector[n]) {
-                v_payload[index] = is_additive? val-v_additive[index] : val;
+                v_payload[index] = is_additive ? val - v_additive[index] : val;
                 ++index;
             }
         }
         // TODO is a barrier necessary ?
-        MPI_Barrier(MPI_COMM_WORLD);
+//        MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allreduce(&v_payload[0], &v_sink[0], send_cnt, send_type, MPI_SUM, MPI_COMM_WORLD);
         index = 0;
         for (int n = 0; n < n_nodes; ++n) {
@@ -724,7 +724,8 @@ namespace nextdbscan {
     }
 
 #ifdef MPI_ON
-    template <class T>
+
+    template<class T>
     void mpi_gather_cell_tree(std::vector<std::vector<std::vector<T>>> &vvv_cell_tree,
             const int max_levels, const int n_nodes, const int node_index, std::vector<T> &v_buffer,
             MPI_Datatype send_type) noexcept {
@@ -741,7 +742,7 @@ namespace nextdbscan {
         }
         offset[0] = 0;
         for (int n = 1; n < n_nodes; ++n) {
-            offset[n] = offset[n-1] + size[n-1];
+            offset[n] = offset[n - 1] + size[n - 1];
         }
         int total_size = 0;
         for (int n = 0; n < n_nodes; ++n) {
@@ -771,7 +772,7 @@ namespace nextdbscan {
                 // TODO skip node index
                 for (int i = 0; i < vvv_cell_tree[n][l].size(); ++i) {
                     assert(index < v_buffer.size());
-                    assert(v_buffer[index] != (T)INT32_MAX);
+                    assert(v_buffer[index] != (T) INT32_MAX);
                     vvv_cell_tree[n][l][i] = v_buffer[index];
                     ++index;
                 }
@@ -779,6 +780,7 @@ namespace nextdbscan {
         }
         assert(index == v_buffer.size());
     }
+
 #endif
 
     void mpi_merge_cell_trees(std::vector<std::vector<std::vector<uint>>> &vvv_index_maps,
@@ -804,16 +806,16 @@ namespace nextdbscan {
             for (uint l = 0; l < max_levels; ++l, ++index) {
                 vvv_index_maps[n][l].resize(n_node_level_elem[index]);
                 if (l > 0) {
-                    vvv_cell_begins[n][l-1].resize(n_node_level_elem[index]);
-                    vvv_cell_ns[n][l-1].resize(n_node_level_elem[index]);
-                    vvv_min_cell_dims[n][l-1].resize(n_node_level_elem[index]*max_d);
-                    vvv_max_cell_dims[n][l-1].resize(n_node_level_elem[index]*max_d);
+                    vvv_cell_begins[n][l - 1].resize(n_node_level_elem[index]);
+                    vvv_cell_ns[n][l - 1].resize(n_node_level_elem[index]);
+                    vvv_min_cell_dims[n][l - 1].resize(n_node_level_elem[index] * max_d);
+                    vvv_max_cell_dims[n][l - 1].resize(n_node_level_elem[index] * max_d);
                 }
             }
-            vvv_cell_begins[n][max_levels-1].resize(1);
-            vvv_cell_ns[n][max_levels-1].resize(1);
-            vvv_min_cell_dims[n][max_levels-1].resize(max_d);
-            vvv_max_cell_dims[n][max_levels-1].resize(max_d);
+            vvv_cell_begins[n][max_levels - 1].resize(1);
+            vvv_cell_ns[n][max_levels - 1].resize(1);
+            vvv_min_cell_dims[n][max_levels - 1].resize(max_d);
+            vvv_max_cell_dims[n][max_levels - 1].resize(max_d);
         }
 
         std::vector<uint> v_uint_buffer;
@@ -848,8 +850,8 @@ namespace nextdbscan {
                     [&](const auto &i1, const auto &i2) -> bool {
                         return v_value_map[i1] < v_value_map[i2];
                     });
-            #pragma omp barrier
-            #pragma omp single
+#pragma omp barrier
+#pragma omp single
             {
                 v_bucket_seperator.clear();
                 v_bucket_seperator_tmp.clear();
@@ -903,10 +905,10 @@ namespace nextdbscan {
                 v_iterator[tid].push_back(iter);
             }
             v_iterator[tid].push_back(std::next(v_index_map.begin(),
-                    v_omp_offsets[tid]+v_omp_sizes[tid]));
-            #pragma omp barrier
+                    v_omp_offsets[tid] + v_omp_sizes[tid]));
+#pragma omp barrier
             for (uint t_index = 0; t_index < n_threads; ++t_index) {
-                v_bucket[tid].insert(v_bucket[tid].end(), v_iterator[t_index][tid], v_iterator[t_index][tid+1]);
+                v_bucket[tid].insert(v_bucket[tid].end(), v_iterator[t_index][tid], v_iterator[t_index][tid + 1]);
             }
 //            #pragma omp barrier
 //            if (tid == 0) {
@@ -916,12 +918,12 @@ namespace nextdbscan {
 //                }
 //                std::cout << std::endl;
 //            }
-            #pragma omp barrier
+#pragma omp barrier
             std::sort(v_bucket[tid].begin(), v_bucket[tid].end(), [&](const auto &i1, const auto &i2) -> bool {
                 return v_value_map[i1] < v_value_map[i2];
             });
-            #pragma omp barrier
-            #pragma omp single
+#pragma omp barrier
+#pragma omp single
             {
                 for (uint t = 1; t < n_threads; ++t) {
                     v_bucket[0].insert(v_bucket[0].end(), v_bucket[t].begin(), v_bucket[t].end());
@@ -931,10 +933,10 @@ namespace nextdbscan {
                         std::make_move_iterator(v_bucket[0].end()));
             }
         } else if (!is_parallel_sort) {
-            #pragma omp barrier
-            #pragma omp single
+#pragma omp barrier
+#pragma omp single
             {
-                std::sort(v_index_map.begin(), v_index_map.end(),[&](const auto &i1, const auto &i2) -> bool {
+                std::sort(v_index_map.begin(), v_index_map.end(), [&](const auto &i1, const auto &i2) -> bool {
                     return v_value_map[i1] < v_value_map[i2];
                 });
             }
@@ -942,6 +944,7 @@ namespace nextdbscan {
     }
 
 #ifdef MPI_ON
+
     void mpi_sort_merge(std::vector<uint> &v_index_map,
             std::vector<ull> &v_value_map,
             std::vector<ull> &v_bucket_seperator,
@@ -952,12 +955,12 @@ namespace nextdbscan {
         v_bucket_seperator.clear();
 //            v_bucket_seperator.resize(n_nodes);
         v_bucket_seperator_tmp.clear();
-        v_bucket_seperator_tmp.resize(n_nodes * (n_nodes-1), 0);
+        v_bucket_seperator_tmp.resize(n_nodes * (n_nodes - 1), 0);
         std::vector<int> v_block_sizes(n_nodes, 0);
         std::vector<int> v_block_offsets(n_nodes, 0);
         int block_offset = 0;
         for (uint n = 0; n < n_nodes; ++n) {
-            if (n < n_nodes-1) {
+            if (n < n_nodes - 1) {
                 uint index = (node_index * (n_nodes - 1)) + n;
                 uint map_index = (n + 1) * (v_index_map.size() / n_nodes);
                 v_bucket_seperator_tmp[index] = v_value_map[v_index_map[map_index]];
@@ -972,7 +975,7 @@ namespace nextdbscan {
 //        print_array("Pre: ", &v_bucket_seperator_tmp[0], v_bucket_seperator_tmp.size());
 //        MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_bucket_seperator_tmp[0],
-                &v_block_sizes[0],&v_block_offsets[0], MPI_UNSIGNED_LONG_LONG,
+                &v_block_sizes[0], &v_block_offsets[0], MPI_UNSIGNED_LONG_LONG,
                 MPI_COMM_WORLD);
 //        MPI_Barrier(MPI_COMM_WORLD);
 //        print_array("Post: ", &v_bucket_seperator_tmp[0], v_bucket_seperator_tmp.size());
@@ -980,8 +983,7 @@ namespace nextdbscan {
         std::sort(v_bucket_seperator_tmp.begin(), v_bucket_seperator_tmp.end());
         for (uint n = 0; n < n_nodes - 1; ++n) {
             uint index = (n * n_nodes) + (n_nodes / 2);
-            std::cout << "selected index: " << index << std::endl;
-            v_bucket_seperator.push_back((v_bucket_seperator_tmp[index] + v_bucket_seperator_tmp[index-1]) / 2);
+            v_bucket_seperator.push_back((v_bucket_seperator_tmp[index] + v_bucket_seperator_tmp[index - 1]) / 2);
         }
 //        MPI_Barrier(MPI_COMM_WORLD);
 //        print_array("Selected: ", &v_bucket_seperator[0], v_bucket_seperator.size());
@@ -1001,119 +1003,8 @@ namespace nextdbscan {
             v_iterator.push_back(iter);
         }
         v_iterator.push_back(v_index_map.end());
-        /*
-        assert(v_iterator.size() == n_nodes+1);
-        // TODO parallelize
-//        for (uint i = 0; i < v_index_map.size(); ++i) {
-//            v_index_map[i] += node_offset;
-//        }
-
-
-        // TODO parallelize
-        for (uint n = 0; n < v_node_bucket.size(); ++n) {
-            v_node_bucket[n].insert(v_node_bucket[n].end(), v_iterator[n], v_iterator[n+1]);
-        }
-        std::vector<int> v_bucket_size(n_nodes * n_nodes, 0);
-        uint index = node_index * n_nodes;
-        for (uint n = 0; n < n_nodes; ++n, ++index) {
-            v_bucket_size[index] = v_node_bucket[n].size();
-        }
-        v_block_offsets.resize(n_nodes);
-        v_block_sizes.resize(n_nodes);
-        v_block_offsets[0] = 0;
-        for (uint n = 0; n < n_nodes; ++n) {
-            v_block_sizes[n] = n_nodes;
-            if (n > 0)
-                v_block_offsets[n] = v_block_offsets[n-1] + v_block_sizes[n-1];
-        }
-//        print_array("block size: ", &v_block_sizes[0], v_block_sizes.size());
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        print_array("block offset: ", &v_block_offsets[0], v_block_offsets.size());
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        print_array("pre node size: ", &v_bucket_size[0], v_bucket_size.size());
-        MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_bucket_size[0],
-                &v_block_sizes[0],&v_block_offsets[0], MPI_INT,
-                MPI_COMM_WORLD);
-        if (node_index == 0) {
-            print_array("post node size: ", &v_bucket_size[0], v_bucket_size.size());
-        }
-        uint total_size = 0;
-        for (uint i = 0; i < v_bucket_size.size(); ++i) {
-            total_size += v_bucket_size[i];
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-//        std::cout << "total size: " << total_size << std::endl;
-        std::vector<uint> v_complete_index_map(total_size, INT32_MAX);
-        std::vector<int> v_bucket_size_ordered;
-        for (uint i1 = 0; i1 < n_nodes; ++i1) {
-            for (uint i2 = i1; i2 < n_nodes*n_nodes; i2 += n_nodes) {
-                v_bucket_size_ordered.push_back(v_bucket_size[i2]);
-            }
-        }
-        if (node_index == 0) {
-            print_array("node size ordered: ", &v_bucket_size_ordered[0], v_bucket_size_ordered.size());
-        }
-
-        std::vector<int> v_bucket_offset(n_nodes*n_nodes, 0);
-        for (uint i = 1; i < v_bucket_offset.size(); ++i) {
-            v_bucket_offset[i] = v_bucket_offset[i-1] + v_bucket_size_ordered[i-1];
-        }
-        if (node_index == 0) {
-            print_array("offset array: ", &v_bucket_offset[0], v_bucket_offset.size());
-        }
-        uint bucket_cnt = 0;
-        // TODO parallelize
-        for (uint i = 0; i < v_bucket_offset.size(); ++i) {
-            if (i % n_nodes == node_index) {
-                if (i < v_bucket_offset.size()-1) {
-                    assert(v_node_bucket[bucket_cnt].size() == (v_bucket_offset[i+1] - v_bucket_offset[i]));
-                }
-                std::copy(
-                        v_node_bucket[bucket_cnt].begin(),
-                        v_node_bucket[bucket_cnt].end(),
-                        std::next(v_complete_index_map.begin(), v_bucket_offset[i]));
-                ++bucket_cnt;
-            }
-        }
-        assert(bucket_cnt == n_nodes);
-        uint cnt = 0;
-        for (auto &val : v_complete_index_map) {
-            if (val != INT32_MAX)
-                ++cnt;
-        }
-        total_size = 0;
-        for (uint i = 0; i < v_node_bucket.size(); ++i) {
-            total_size += v_node_bucket[i].size();
-        }
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        std::cout << "node_index: " << node_index << " cnt: " << cnt << " : " << total_size << std::endl;
-        assert(cnt == total_size);
-        for (uint i = 0; i < n_nodes; ++i) {
-            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_complete_index_map[0],
-                    &v_bucket_size_ordered[i*n_nodes],&v_bucket_offset[i*n_nodes], MPI_UNSIGNED,
-                    MPI_COMM_WORLD);
-        }
-        for (auto &val : v_complete_index_map)
-            assert(val != INT32_MAX);
-        std::vector<bool> v_check(v_complete_index_map.size(), false);
-        for (auto &val : v_complete_index_map) {
-            assert(!v_check[val]);
-            assert(val > 0);
-            assert(val < v_check.size());
-            v_check[val] = true;
-        }
-
-        uint size = v_index_map.size();
-//        std::cout << "index map size: " << v_index_map.size();
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        std::cout << "node offset: " << node_offset << std::endl;
-        v_index_map.clear();
-        v_index_map.insert(v_index_map.end(), std::next(v_complete_index_map.begin(), node_offset),
-                std::next(v_complete_index_map.begin(), node_offset+size));
-        assert(size == v_index_map.size());
-        */
     }
+
 #endif
 
     void determine_index_values(std::unique_ptr<float[]> &v_coords,
@@ -1128,7 +1019,7 @@ namespace nextdbscan {
             uint p_index = i + offset;
             int level_mod = 1;
             while (l - level_mod >= 0) {
-                p_index = vv_index_map[l-level_mod][vv_cell_begin[l-level_mod][p_index]];
+                p_index = vv_index_map[l - level_mod][vv_cell_begin[l - level_mod][p_index]];
                 ++level_mod;
             }
             uint coord_index = (p_index + node_offset) * max_d;
@@ -1148,8 +1039,7 @@ namespace nextdbscan {
             std::vector<ull> &v_bucket_seperator_tmp,
             std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
             const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
-            const ull *dims_mult, const uint n_threads, const uint n_nodes, const uint total_points,
-            const uint node_index) noexcept {
+            const ull *dims_mult, const uint n_threads) noexcept {
         vv_index_map[l].resize(size);
         v_value_map.resize(size);
         uint unique_new_cells = 0;
@@ -1163,7 +1053,7 @@ namespace nextdbscan {
             if (v_omp_sizes[t] == 0)
                 is_parallel_sort = false;
         }
-        #pragma omp parallel
+#pragma omp parallel
         {
             int tid = omp_get_thread_num();
             if (l == 0) {
@@ -1175,20 +1065,9 @@ namespace nextdbscan {
 //            if (tid == 0 && l == 0) {
 //                std::cout << vv_index_map[l][0] << " : " << vv_index_map[l][1] << std::endl;
 //            }
-            #pragma omp barrier
+#pragma omp barrier
             determine_index_values(v_coords, v_min_bounds, vv_index_map, vv_cell_begin, v_value_map,
                     dims_mult, l, v_omp_sizes[tid], v_omp_offsets[tid], max_d, level_eps, node_offset);
-//            for (uint i = 0; i < v_omp_sizes[tid]; ++i) {
-//                uint p_index = i + v_omp_offsets[tid];
-//                int level_mod = 1;
-//                while (l - level_mod >= 0) {
-//                    p_index = vv_index_map[l-level_mod][vv_cell_begin[l-level_mod][p_index]];
-//                    ++level_mod;
-//                }
-//                uint coord_index = (p_index + node_offset) * max_d;
-//                v_value_map[v_omp_offsets[tid] + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
-//                        dims_mult, max_d, level_eps);
-//            }
             sort_indexes_omp(v_omp_sizes, v_omp_offsets, vv_index_map[l], v_value_map, v_bucket,
                     v_bucket_seperator, v_bucket_seperator_tmp, v_iterator, tid, n_threads, is_parallel_sort);
 #ifdef MPI_ON
@@ -1206,10 +1085,7 @@ namespace nextdbscan {
 //                    v_bucket_seperator, v_bucket_seperator_tmp, v_iterator, tid, n_threads, is_parallel_sort);
 //        }
 #endif
-//            if (tid == 0) {
-//                std::cout << "DONE SORTING" << std::endl;
-//            }
-            #pragma omp barrier
+#pragma omp barrier
             if (v_omp_sizes[tid] > 0) {
                 uint new_cells = 1;
 //                assert(v_omp_offsets[tid] < vv_index_map[l].size());
@@ -1233,15 +1109,15 @@ namespace nextdbscan {
                     }
                 }
                 no_of_cells[tid] = new_cells;
-                #pragma omp atomic
+#pragma omp atomic
                 unique_new_cells += new_cells;
             }
 //            #pragma omp barrier
 //            if (tid == 0) {
 //                std::cout << "new cells: " << unique_new_cells << std::endl;
 //            }
-            #pragma omp barrier
-            #pragma omp single
+#pragma omp barrier
+#pragma omp single
             {
                 vv_cell_begin[l].resize(unique_new_cells);
                 v_cell_ns.resize(unique_new_cells);
@@ -1257,9 +1133,9 @@ namespace nextdbscan {
                 // boundary corrections
                 if (index_map_offset > 0) {
 //                    assert(v_omp_offsets[tid] > 0);
-                    if (v_value_map[vv_index_map[l][index_map_offset-1]] == last_value) {
+                    if (v_value_map[vv_index_map[l][index_map_offset - 1]] == last_value) {
                         while (v_value_map[vv_index_map[l][index_map_offset]] == last_value
-                            && index_map_offset < v_value_map.size()) {
+                               && index_map_offset < v_value_map.size()) {
                             ++index_map_offset;
                         }
                         last_value = v_value_map[vv_index_map[l][index_map_offset]];
@@ -1275,14 +1151,14 @@ namespace nextdbscan {
                     }
                 }
             }
-            #pragma omp barrier
-            #pragma omp for
-            for (uint i = 0; i < unique_new_cells-1; ++i) {
-                v_cell_ns[i] = vv_cell_begin[l][i+1] - vv_cell_begin[l][i];
+#pragma omp barrier
+#pragma omp for
+            for (uint i = 0; i < unique_new_cells - 1; ++i) {
+                v_cell_ns[i] = vv_cell_begin[l][i + 1] - vv_cell_begin[l][i];
             }
 
         } // end parallel
-        v_cell_ns[unique_new_cells-1] = v_value_map.size() - vv_cell_begin[l][unique_new_cells-1];
+        v_cell_ns[unique_new_cells - 1] = v_value_map.size() - vv_cell_begin[l][unique_new_cells - 1];
 
         /*
         vv_cell_begin[l][0] = 0;
@@ -1344,10 +1220,10 @@ namespace nextdbscan {
                     uint c1_next = vv_index_map[l][begin1 + k1];
                     for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
                         uint c2_next = vv_index_map[l][begin2 + k2];
-                        if (is_in_reach(&vv_min_cell_dim[l-1][c1_next * max_d],
-                                &vv_max_cell_dim[l-1][c1_next * max_d],
-                                &vv_min_cell_dim[l-1][c2_next * max_d],
-                                &vv_max_cell_dim[l-1][c2_next * max_d], max_d, e)) {
+                        if (is_in_reach(&vv_min_cell_dim[l - 1][c1_next * max_d],
+                                &vv_max_cell_dim[l - 1][c1_next * max_d],
+                                &vv_min_cell_dim[l - 1][c2_next * max_d],
+                                &vv_max_cell_dim[l - 1][c2_next * max_d], max_d, e)) {
                             v_stacks3.emplace_back(l - 1, c1_next, c2_next);
                         }
                     }
@@ -1431,24 +1307,24 @@ namespace nextdbscan {
         for (uint t = 0; t < n_threads; ++t) {
             v_tasks_t[t].reserve(vv_cell_begin[0].size() / n_threads);
         }
-        #pragma omp parallel
+#pragma omp parallel
         {
             int tid = omp_get_thread_num();
             for (uint l = 1; l < max_levels; ++l) {
                 v_tasks_t[tid].clear();
-                #pragma omp for
+#pragma omp for
                 for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
                     uint begin = vv_cell_begin[l][i];
                     for (uint c1 = 0; c1 < vv_cell_ns[l][i]; ++c1) {
                         uint c1_index = vv_index_map[l][begin + c1];
                         for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][i]; ++c2) {
                             uint c2_index = vv_index_map[l][begin + c2];
-                            v_tasks_t[tid].emplace_back(l-1, c1_index, c2_index);
+                            v_tasks_t[tid].emplace_back(l - 1, c1_index, c2_index);
                         }
                     }
                 }
-                #pragma omp barrier
-                #pragma omp single
+#pragma omp barrier
+#pragma omp single
                 {
                     v_tmp.clear();
                     for (uint t = 0; t < n_threads; ++t) {
@@ -1456,7 +1332,7 @@ namespace nextdbscan {
                     }
                 }
                 v_tasks_t[tid].clear();
-                #pragma omp for
+#pragma omp for
                 for (uint i = 0; i < v_tmp.size(); ++i) {
                     uint c1_index = v_tmp[i].c1;
                     uint c2_index = v_tmp[i].c2;
@@ -1467,11 +1343,11 @@ namespace nextdbscan {
                         v_tasks_t[tid].push_back(v_tmp[i]);
                     }
                 }
-                #pragma omp barrier
-                #pragma omp single
+#pragma omp barrier
+#pragma omp single
                 {
                     for (uint t = 0; t < n_threads; ++t) {
-                        v_tasks.insert(v_tasks.end(), v_tasks_t[t].begin(),v_tasks_t[t].end());
+                        v_tasks.insert(v_tasks.end(), v_tasks_t[t].begin(), v_tasks_t[t].end());
                     }
                 }
 
@@ -1487,7 +1363,7 @@ namespace nextdbscan {
             const uint max_d, const uint n_nodes, const uint n_threads, const uint node_index) noexcept {
         uint max_points_in_leaf_cell = 0;
         for (uint n = 0; n < n_nodes; ++n) {
-            #pragma omp parallel for reduction(max: max_points_in_leaf_cell)
+#pragma omp parallel for reduction(max: max_points_in_leaf_cell)
             for (uint i = 0; i < vvv_cell_ns[n][0].size(); ++i) {
                 if (n == node_index)
                     vv_leaf_cell_nn[n][i] = vvv_cell_ns[n][0][i];
@@ -1496,11 +1372,11 @@ namespace nextdbscan {
                 }
             }
         }
-        #pragma omp parallel for
+#pragma omp parallel for
         for (uint t = 0; t < n_threads; ++t) {
             vv_stacks3[t].reserve(vvv_cell_ns[0][0].size() * (uint) std::max((int) logf(max_d), 1));
             vv_range_table[t].resize(max_points_in_leaf_cell * max_points_in_leaf_cell);
-            vv_range_counts[t].resize(max_points_in_leaf_cell*2);
+            vv_range_counts[t].resize(max_points_in_leaf_cell * 2);
         }
     }
 
@@ -1511,7 +1387,7 @@ namespace nextdbscan {
         std::vector<std::vector<int>> v_index_stack(n_threads);
         uint flatten_cnt = 0;
         // Flatten label trees
-        #pragma omp parallel for reduction(+:flatten_cnt)
+#pragma omp parallel for reduction(+:flatten_cnt)
         for (uint t = 0; t < n_threads; ++t) {
             for (uint i = 0; i < max_clusters; ++i) {
                 if (v_t_c_labels[t][i] == LABEL_CELL) {
@@ -1534,7 +1410,7 @@ namespace nextdbscan {
 //                }
 //            }
 //        }
-        #pragma omp parallel for
+#pragma omp parallel for
         for (uint i = 0; i < max_clusters; ++i) {
             for (uint t = 0; t < n_threads; ++t) {
                 if (v_t_c_labels[t][i] != LABEL_CELL && v_t_c_labels[t][i] < v_labels[i]) {
@@ -1543,7 +1419,7 @@ namespace nextdbscan {
             }
         }
         std::vector<int> v_cluster_index;
-        #pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
+#pragma omp parallel for reduction(vec_merge_int: v_cluster_index)
         for (uint i = 0; i < max_clusters; ++i) {
             if (v_labels[i] == LABEL_CELL) {
                 v_cluster_index.push_back(i);
@@ -1608,8 +1484,8 @@ namespace nextdbscan {
             std::vector<std::vector<float>> &vv_max_cell_dim,
             std::unique_ptr<uint[]> &v_node_sizes,
             std::unique_ptr<uint[]> &v_node_offsets,
-            const uint n_nodes, const uint node_index, const uint max_d, const uint n_threads,
-            const uint max_levels, const uint total_points) noexcept {
+            const uint node_index, const uint max_d, const uint n_threads,
+            const uint max_levels) noexcept {
         std::vector<ull> v_value_map;
         std::vector<std::vector<uint>> v_bucket(n_threads);
         std::vector<ull> v_bucket_seperator;
@@ -1622,13 +1498,14 @@ namespace nextdbscan {
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_seperator, v_bucket_seperator_tmp,
                     v_iterator, size, l, max_d, v_node_offsets[node_index], v_eps_levels[l],
-                    &v_dims_mult[l * max_d], n_threads, n_nodes, total_points, node_index);
-            calculate_level_cell_bounds(&v_coords[v_node_offsets[node_index]*max_d], vv_cell_begin[l], vv_cell_ns[l],
+                    &v_dims_mult[l * max_d], n_threads);
+            calculate_level_cell_bounds(&v_coords[v_node_offsets[node_index] * max_d], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
         }
     }
 
 #ifdef MPI_ON
+
     void process_nodes_nearest_neighbour(std::unique_ptr<float[]> &v_coords,
             std::unique_ptr<uint[]> &v_node_offset,
             std::vector<std::vector<std::vector<uint>>> &vvv_index_map,
@@ -1649,13 +1526,13 @@ namespace nextdbscan {
         std::vector<uint> v_payload;
         std::vector<uint> v_sink_cells;
         std::vector<uint> v_sink_points;
-        mpi_sum_vectors(vv_point_nn, v_payload, v_sink_points, v_sink_points , n_nodes,
+        mpi_sum_vectors(vv_point_nn, v_payload, v_sink_points, v_sink_points, n_nodes,
                 MPI_UNSIGNED, false);
         mpi_sum_vectors(vv_leaf_cell_nn, v_payload, v_sink_cells, v_sink_cells, n_nodes,
                 MPI_UNSIGNED, false);
 
         // TODO dynamic level and parallelize
-        uint level = max_levels-2;
+        uint level = max_levels - 5;
         std::vector<cell_meta_5> v_pair_task;
         v_pair_task.reserve(vvv_cell_ns[0][level].size() * n_nodes);
         int cnt = 0;
@@ -1670,6 +1547,8 @@ namespace nextdbscan {
                 }
             }
         }
+        if (node_index == 0)
+            std::cout << "pair tasks: " << v_pair_task.size() << std::endl;
         #pragma omp parallel for schedule(dynamic)
         for (uint i = 0; i < v_pair_task.size(); ++i) {
             uint tid = omp_get_thread_num();
@@ -1690,7 +1569,119 @@ namespace nextdbscan {
         mpi_sum_vectors(vv_leaf_cell_nn, v_payload, v_sink_cells2, v_sink_cells, n_nodes,
                 MPI_UNSIGNED, true);
     }
+
 #endif
+
+#ifdef MPI_ON
+    void coord_partition_and_merge(std::unique_ptr<float[]> &v_coords,
+            std::unique_ptr<float[]> &v_min_bounds,
+            const ull* dims_mult, const float eps_level,
+            const uint node_size, const uint node_offset, const uint max_d, const uint n_threads,
+            const uint node_index, const uint n_nodes, const uint total_samples) {
+        int sizes[n_nodes];
+        int offsets[n_nodes];
+        std::vector<uint> v_index_map(node_size);
+        std::iota(v_index_map.begin(), v_index_map.end(), 0);
+        std::vector<ull> v_value_map(node_size);
+        uint index = 0;
+        for (uint i = node_offset; i < node_size + node_offset; ++i, ++index) {
+            v_value_map[index] = get_cell_index(&v_coords[i * max_d], v_min_bounds,
+                    dims_mult, max_d, eps_level);
+//                    &v_dims_mult[0], max_d, v_eps_levels[0]);
+        }
+        std::sort(v_index_map.begin(), v_index_map.end(), [&](const auto &i1, const auto &i2) -> bool {
+            return v_value_map[i1] < v_value_map[i2];
+        });
+        std::vector<ull> v_bucket_seperator;
+        v_bucket_seperator.reserve(n_threads);
+        std::vector<ull> v_bucket_seperator_tmp;
+        v_bucket_seperator_tmp.reserve(n_threads * n_threads);
+        std::vector<std::vector<uint>::iterator> v_iterator;
+        mpi_sort_merge(v_index_map, v_value_map, v_bucket_seperator, v_bucket_seperator_tmp, v_iterator,
+                n_nodes, node_index);
+        int block_sizes[n_nodes * n_nodes];
+//         TODO tmp
+//        for (uint i = 0; i < n_nodes * n_nodes; ++i) {
+//            block_sizes[i] = 0;
+//        }
+        int block_offsets[n_nodes * n_nodes];
+        index = node_index * n_nodes;
+        offsets[0] = 0;
+        for (uint n = 0; n < n_nodes; ++n) {
+            block_sizes[index + n] = v_iterator[n + 1] - v_iterator[n];
+            sizes[n] = n_nodes;
+            if (n > 0)
+                offsets[n] = offsets[n - 1] + sizes[n - 1];
+        }
+//        print_array("pre block sizes: ", &block_sizes[0], n_nodes * n_nodes);
+
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &block_sizes[0], sizes,
+                offsets, MPI_FLOAT, MPI_COMM_WORLD);
+//        if (node_index == 0) {
+//            print_array("post block sizes: ", &block_sizes[0], n_nodes * n_nodes);
+//        }
+
+        int last_size = 0;
+        int last_val = 0;
+        int val = 0;
+        for (int n1 = 0; n1 < n_nodes; ++n1) {
+            for (int n2 = 0; n2 < n_nodes; ++n2) {
+                index = n2 * n_nodes + n1;
+                val = last_val + last_size;
+                block_offsets[index] = val;
+                last_val = val;
+                last_size = block_sizes[index];
+            }
+        }
+//        if (node_index == 0) {
+//            print_array("post block offsets: ", &block_offsets[0], n_nodes * n_nodes);
+//        }
+        std::vector<float> v_coord_copy(total_samples * max_d/*, INT32_MAX*/);
+
+        index = node_index * n_nodes;
+        for (uint n = 0; n < n_nodes; ++n) {
+            uint begin_coord = block_offsets[index + n] * max_d;
+            uint begin_block = (v_iterator[n] - v_iterator[0]);
+//            std::cout << "node: " << node_index << " begin_block: " << begin_block << std::endl;
+            for (uint i = 0; i < block_sizes[index + n]; ++i) {
+                assert(begin_coord + i < v_coord_copy.size());
+                for (uint j = 0; j < max_d; ++j) {
+                    assert(begin_coord + (i * max_d) + j < v_coord_copy.size());
+                    v_coord_copy[begin_coord + (i * max_d) + j] = v_coords[
+                            (node_offset + v_index_map[begin_block + i]) * max_d + j];
+                }
+
+            }
+        }
+        last_size = 0;
+        last_val = 0;
+        val = 0;
+        for (uint n1 = 0; n1 < n_nodes; ++n1) {
+            index = 0;
+            for (uint n2 = 0; n2 < n_nodes; ++n2) {
+                sizes[index] = block_sizes[n2 * n_nodes + n1];
+                val = last_val + last_size;
+                offsets[index] = val;
+                last_val = val;
+                last_size = sizes[index];
+                sizes[index] *= max_d;
+                offsets[index] *= max_d;
+                ++index;
+            }
+//            if (node_index == 1) {
+//                print_array("transmit sizes: ", &sizes[0], n_nodes);
+//                print_array("transmit offsets: ", &offsets[0], n_nodes);
+//            }
+            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_coord_copy[0],
+                    sizes, offsets, MPI_FLOAT, MPI_COMM_WORLD);
+        }
+//        for (auto &elem : v_coord_copy) {
+//            assert(elem != INT32_MAX);
+//        }
+        std::copy(v_coord_copy.begin(), v_coord_copy.end(), &v_coords[0]);
+    }
+#endif
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint n_nodes) noexcept {
         // *** READ DATA ***
@@ -1756,126 +1747,12 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time_mpi2 - time_mpi1).count()
                       << " milliseconds\n";
         }
-
-        /*
-        for (uint i = 0; i < size; ++i) {
-            uint p_index = i + offset;
-            int level_mod = 1;
-            while (l - level_mod >= 0) {
-                p_index = vv_index_map[l-level_mod][vv_cell_begin[l-level_mod][p_index]];
-                ++level_mod;
-            }
-            uint coord_index = (p_index + node_offset) * max_d;
-            v_value_map[offset + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
-                    dims_mult, max_d, level_eps);
+        if (n_nodes > 1) {
+            uint node_offset = v_node_offsets[node_index];
+            uint node_size = v_node_sizes[node_index];
+            coord_partition_and_merge(v_coords, v_min_bounds, &v_dims_mult[0], v_eps_levels[0],
+                    node_size, node_offset, max_d, n_threads, node_index, n_nodes, total_samples);
         }
-         */
-        uint node_offset = v_node_offsets[node_index];
-        uint node_size = v_node_sizes[node_index];
-        std::vector<uint> v_index_map(node_size);
-        std::iota(v_index_map.begin(), v_index_map.end(), 0);
-        std::vector<ull> v_value_map(node_size);
-        uint index = 0;
-        for (uint i = node_offset; i < node_size + node_offset; ++i, ++index) {
-            v_value_map[index] = get_cell_index(&v_coords[i*max_d], v_min_bounds,
-                    &v_dims_mult[0], max_d, v_eps_levels[0]);
-        }
-        std::sort(v_index_map.begin(), v_index_map.end(),[&](const auto &i1, const auto &i2) -> bool {
-            return v_value_map[i1] < v_value_map[i2];
-        });
-        std::vector<ull> v_bucket_seperator;
-        v_bucket_seperator.reserve(n_threads);
-        std::vector<ull> v_bucket_seperator_tmp;
-        v_bucket_seperator_tmp.reserve(n_threads * n_threads);
-        std::vector<std::vector<uint>::iterator> v_iterator;
-        mpi_sort_merge(v_index_map, v_value_map, v_bucket_seperator, v_bucket_seperator_tmp, v_iterator,
-                n_nodes, node_index);
-        int block_sizes[n_nodes*n_nodes];
-        // TODO tmp
-        for (uint i = 0; i < n_nodes*n_nodes; ++i) {
-            block_sizes[i] = 0;
-        }
-        int block_offsets[n_nodes*n_nodes];
-        index = node_index * n_nodes;
-        offsets[0] = 0;
-        for (uint n = 0; n < n_nodes; ++n) {
-            block_sizes[index+n] = v_iterator[n+1] - v_iterator[n];
-            sizes[n] = n_nodes;
-            if (n > 0)
-                offsets[n] = offsets[n-1] + sizes[n-1];
-        }
-        print_array("pre block sizes: ", &block_sizes[0], n_nodes*n_nodes);
-
-        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &block_sizes[0], sizes,
-                offsets, MPI_FLOAT, MPI_COMM_WORLD);
-        if (node_index == 0) {
-            print_array("post block sizes: ", &block_sizes[0], n_nodes*n_nodes);
-        }
-
-        int last_size = 0;
-        int last_val = 0;
-        int val = 0;
-        for (int n1 = 0; n1 < n_nodes; ++n1) {
-            for (int n2 = 0; n2 < n_nodes; ++n2) {
-                index = n2 * n_nodes + n1;
-                val = last_val + last_size;
-                block_offsets[index] = val;
-                last_val = val;
-                last_size = block_sizes[index];
-            }
-        }
-        if (node_index == 0) {
-            print_array("post block offsets: ", &block_offsets[0], n_nodes*n_nodes);
-        }
-        std::vector<float> v_coord_copy(total_samples*max_d, INT32_MAX);
-
-        index = node_index * n_nodes;
-        for (uint n = 0; n < n_nodes; ++n) {
-            uint begin_coord = block_offsets[index+n]*max_d;
-            uint begin_block = (v_iterator[n] - v_iterator[0]);
-//            if (node_index == 0)
-            std::cout << "node: " << node_index << " begin_block: " << begin_block << std::endl;
-            for (uint i = 0; i < block_sizes[index+n]; ++i) {
-                assert(begin_coord + i < v_coord_copy.size());
-                for (uint j = 0; j < max_d; ++j) {
-                    assert(begin_coord + (i*max_d) + j < v_coord_copy.size());
-//                    v_coord_copy[begin_coord + (i*max_d) + j] = 1;
-//                    assert(begin_block + ())
-                    v_coord_copy[begin_coord + (i*max_d) + j] = v_coords[(node_offset+v_index_map[begin_block + i])*max_d + j];
-                }
-
-            }
-        }
-//        if (node_index == 0) {
-//            std::cout << "DONE INSERT" << std::endl;
-//        }
-        last_size = 0;
-        last_val = 0;
-        val = 0;
-        for (uint n1 = 0; n1 < n_nodes; ++n1) {
-            index = 0;
-            for (uint n2 = 0; n2 < n_nodes; ++n2) {
-                sizes[index] = block_sizes[n2 * n_nodes + n1];
-                val = last_val + last_size;
-                offsets[index] = val;
-                last_val = val;
-                last_size = sizes[index];
-                sizes[index] *= max_d;
-                offsets[index] *= max_d;
-                ++index;
-            }
-            if (node_index == 1) {
-                print_array("transmit sizes: ", &sizes[0], n_nodes);
-                print_array("transmit offsets: ", &offsets[0], n_nodes);
-            }
-            MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_coord_copy[0],
-                    sizes,offsets, MPI_FLOAT, MPI_COMM_WORLD);
-        }
-        for (auto &elem : v_coord_copy) {
-            assert(elem != INT32_MAX);
-        }
-        std::copy(v_coord_copy.begin(), v_coord_copy.end(), &v_coords[0]);
-
         auto time_mpi3 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "MPI Point Sort: "
@@ -1899,8 +1776,8 @@ namespace nextdbscan {
         }
         index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vvv_index_map[node_index],
                 vvv_cell_begin[node_index],vvv_cell_ns[node_index], vvv_min_cell_dim[node_index],
-                vvv_max_cell_dim[node_index], v_node_sizes,v_node_offsets, n_nodes, node_index, max_d,
-                n_threads, max_levels, total_samples);
+                vvv_max_cell_dim[node_index], v_node_sizes,v_node_offsets, node_index, max_d,
+                n_threads, max_levels);
         auto time_index_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Index and Bounds: "
@@ -1928,9 +1805,11 @@ namespace nextdbscan {
 
 #ifdef MPI_ON
         auto time_mpi_merge1 = std::chrono::high_resolution_clock::now();
-        mpi_merge_cell_trees(vvv_index_map, vvv_cell_begin, vvv_cell_ns, vvv_min_cell_dim,
-                vvv_max_cell_dim, node_index, n_nodes, max_levels, max_d);
-        MPI_Barrier(MPI_COMM_WORLD);
+        if (n_nodes > 1) {
+            mpi_merge_cell_trees(vvv_index_map, vvv_cell_begin, vvv_cell_ns, vvv_min_cell_dim,
+                    vvv_max_cell_dim, node_index, n_nodes, max_levels, max_d);
+//        MPI_Barrier(MPI_COMM_WORLD);
+        }
         auto time_mpi_merge2 = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "MPI Grid-cell Tree Merge: "
@@ -1975,10 +1854,12 @@ namespace nextdbscan {
         }
 #ifdef MPI_ON
         auto time_mpi_trees_start = std::chrono::high_resolution_clock::now();
-        process_nodes_nearest_neighbour(v_coords, v_node_offsets, vvv_index_map, vvv_cell_begin,
-                vvv_cell_ns,vv_stacks3, vv_range_table, vv_range_counts, vv_leaf_cell_nn,
-                vv_point_nn, vv_cell_type, vv_is_core, vvv_min_cell_dim, vvv_max_cell_dim,
-                n_nodes, max_d, m, e, max_levels, node_index);
+        if (n_nodes > 1) {
+            process_nodes_nearest_neighbour(v_coords, v_node_offsets, vvv_index_map, vvv_cell_begin,
+                    vvv_cell_ns, vv_stacks3, vv_range_table, vv_range_counts, vv_leaf_cell_nn,
+                    vv_point_nn, vv_cell_type, vv_is_core, vvv_min_cell_dim, vvv_max_cell_dim,
+                    n_nodes, max_d, m, e, max_levels, node_index);
+        }
         auto time_mpi_trees_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Node Trees NN: "
