@@ -699,27 +699,26 @@ namespace nextdbscan {
         if (v_sink.empty()) {
             v_sink.resize(send_cnt);
         }
-        // TODO Use the offset with OMP
         int index = 0;
         for (int n = 0; n < n_nodes; ++n) {
-            for (auto &val : vv_vector[n]) {
-                v_payload[index] = is_additive ? val - v_additive[index] : val;
-                ++index;
+            #pragma omp parallel for
+            for (uint i = 0; i < vv_vector[n].size(); ++i) {
+                v_payload[index+i] = is_additive ? vv_vector[n][i] - v_additive[index+i] : vv_vector[n][i];
             }
+            index += vv_vector[n].size();
         }
-        // TODO is a barrier necessary ?
-//        MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allreduce(&v_payload[0], &v_sink[0], send_cnt, send_type, MPI_SUM, MPI_COMM_WORLD);
         index = 0;
         for (int n = 0; n < n_nodes; ++n) {
-            for (int i = 0; i < vv_vector[n].size(); ++i, ++index) {
-//                assert(v_sink[index] != (T)-1);
+            #pragma omp parallel for
+            for (uint i = 0; i < vv_vector[n].size(); ++i) {
                 if (is_additive) {
-                    vv_vector[n][i] = v_additive[index] + v_sink[index];
+                    vv_vector[n][i] = v_additive[i+index] + v_sink[i+index];
                 } else {
-                    vv_vector[n][i] = v_sink[index];
+                    vv_vector[n][i] = v_sink[i+index];
                 }
             }
+            index += vv_vector[n].size();
         }
     }
 
