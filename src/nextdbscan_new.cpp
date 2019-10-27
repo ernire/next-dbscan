@@ -32,7 +32,7 @@ SOFTWARE.
 #include <omp.h>
 #include <numeric>
 #include <functional>
-#define MPI_ON
+//#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -434,6 +434,10 @@ namespace nextdbscan {
             strcpy(c, in_file.c_str());
             auto *data = new deep_io(c, blocks_no, block_index);
             int read_bytes = data->load_next_samples(v_points);
+            if (read_bytes == -1) {
+                std::cerr << "Critical Error: Failed to read input" << std::endl;
+                exit(-1);
+            }
 //            std::cout << "read data bytes: " << read_bytes << std::endl;
             n = data->sample_read_no;
             max_d = data->feature_no;
@@ -1654,6 +1658,7 @@ namespace nextdbscan {
         process_local_labels(v_t_c_labels, v_labels, vv_cluster_label[node_index], n_threads, max_local_clusters);
     }
 
+
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint n_nodes) noexcept {
         // *** READ DATA ***
@@ -1816,8 +1821,7 @@ namespace nextdbscan {
         });
 
 #ifdef MPI_ON
-//        auto time_all_label_start = std::chrono::high_resolution_clock::now();
-        measure_duration("Local Tree Labels: ", node_index == 0, [&]() -> void {
+        measure_duration("Update Shared Labels: ", node_index == 0, [&]() -> void {
             for (uint n = 0; n < n_nodes; ++n) {
                 if (n == node_index)
                     continue;
@@ -1828,14 +1832,6 @@ namespace nextdbscan {
                 }
             }
         });
-
-//        auto time_all_label_end = std::chrono::high_resolution_clock::now();
-//        if (!g_quiet && node_index == 0) {
-//            std::cout << "Local Tree Labels: "
-//                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-//                              time_all_label_end - time_all_label_start).count()
-//                      << " milliseconds\n";
-//        }
 #endif
         auto time_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {

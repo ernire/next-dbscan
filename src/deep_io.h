@@ -15,7 +15,7 @@ class deep_io {
 private:
     const char *file;
     const uint block_no, block_index, max_samples_per_batch;
-    int feature_offset = UNDEFINED_VALUE;
+    long long feature_offset = UNDEFINED_VALUE;
     bool is_initialized = false;
 
     void load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_samples);
