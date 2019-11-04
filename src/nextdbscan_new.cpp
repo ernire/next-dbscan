@@ -50,6 +50,9 @@ namespace nextdbscan {
     static const int LABEL_CELL = INT32_MAX;
 
     typedef unsigned long long ull;
+
+//    typedef unsigned __int128 ull;
+
     static bool g_quiet = false;
 
     struct cell_meta_3 {
@@ -64,7 +67,7 @@ namespace nextdbscan {
         cell_meta_5(uint l, uint c1, uint c2, uint n1, uint n2) : l(l), c1(c1), c2(c2), n1(n1), n2(n2) {}
     };
 
-    void measure_duration(const std::string name, const bool is_out, const std::function<void()> &callback) noexcept {
+    void measure_duration(const std::string &name, const bool is_out, const std::function<void()> &callback) noexcept {
         auto start_timestamp = std::chrono::high_resolution_clock::now();
         callback();
         auto end_timestamp = std::chrono::high_resolution_clock::now();
@@ -97,14 +100,30 @@ namespace nextdbscan {
 
     void calc_dims_mult(ull *dims_mult, const uint max_d, const std::unique_ptr<float[]> &min_bounds,
             const std::unique_ptr<float[]> &max_bounds, const float e_inner) noexcept {
-        std::vector<uint> dims;
-        dims.resize(max_d);
+        std::vector<uint> dims(max_d);
         dims_mult[0] = 1;
         for (uint d = 0; d < max_d; d++) {
-            dims[d] = static_cast<uint>((max_bounds[d] - min_bounds[d]) / e_inner) + 1;
-            if (d > 0)
+            dims[d] = ((max_bounds[d] - min_bounds[d]) / e_inner) + 1;
+            if (d > 0) {
                 dims_mult[d] = dims_mult[d - 1] * dims[d - 1];
+                if (dims_mult[d] < dims_mult[d-1]) {
+                    std::cerr << "Error: Index Overflow Detected" << std::endl;
+                    std::cout << "Number of possible cells exceeds 2^64 (not yet supported). "
+                        << "Try using a larger epsilon value." << std::endl;
+                    exit(-1);
+                }
+            }
         }
+    }
+
+    inline float dist_leq_val(const float *coord1, const float *coord2, const int max_d) noexcept {
+        float tmp = 0, tmp2;
+
+        for (int d = 0; d < max_d; d++) {
+            tmp2 = coord1[d] - coord2[d];
+            tmp += tmp2 * tmp2;
+        }
+        return tmp;
     }
 
     inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
@@ -120,10 +139,8 @@ namespace nextdbscan {
     inline ull get_cell_index(const float *dv, const std::unique_ptr<float[]> &mv, const ull *dm, const uint max_d,
             const float size) noexcept {
         ull cell_index = 0;
-        uint local_index;
         for (uint d = 0; d < max_d; d++) {
-            local_index = static_cast<uint>((dv[d] - mv[d]) / size);
-            cell_index += local_index * dm[d];
+            cell_index += (ull)((dv[d] - mv[d]) / size) * dm[d];
         }
         return cell_index;
     }
@@ -210,11 +227,10 @@ namespace nextdbscan {
         }
     }
 
-    bool fill_range_table(const float *v_coords, std::vector<uint> &v_index_map_level,
-            std::vector<uint> &v_cell_ns_level, std::vector<bool> &v_range_table, const uint c1,
+    uint fill_range_table(const float *v_coords, std::vector<uint> &v_index_map_level,
+            const uint size1, const uint size2, std::vector<bool> &v_range_table, const uint c1,
             const uint begin1, const uint c2, const uint begin2, const uint max_d, const float e2) noexcept {
-        uint size1 = v_cell_ns_level[c1];
-        uint size2 = v_cell_ns_level[c2];
+        uint hits = 0;
         uint index = 0;
         uint total_size = size1 * size2;
         std::fill(v_range_table.begin(), v_range_table.begin() + total_size, false);
@@ -224,14 +240,11 @@ namespace nextdbscan {
                 uint p2 = v_index_map_level[begin2 + k2];
                 if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
                     v_range_table[index] = true;
+                    ++hits;
                 }
             }
         }
-        for (uint i = 0; i < total_size; ++i) {
-            if (!v_range_table[i])
-                return false;
-        }
-        return true;
+        return hits;
     }
 
     void update_points(std::vector<uint> &v_index_map_level, std::vector<uint> &v_cell_nps,
@@ -257,13 +270,11 @@ namespace nextdbscan {
         }
     }
 
-    void update_cell_pair_nn(std::vector<uint> &v_index_map_level, std::vector<uint> &v_cell_ns_level,
+    void update_cell_pair_nn(std::vector<uint> &v_index_map_level, const uint size1, const uint size2,
             std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps, std::vector<bool> &v_range_table,
             std::vector<uint> &v_range_count,
             const uint c1, const uint begin1, const uint c2, const uint begin2,
             const bool is_update1, const bool is_update2) noexcept {
-        uint size1 = v_cell_ns_level[c1];
-        uint size2 = v_cell_ns_level[c2];
         std::fill(v_range_count.begin(), std::next(v_range_count.begin() + (size1 + size2)), 0);
         uint index = 0;
         for (uint k1 = 0; k1 < size1; ++k1) {
@@ -292,11 +303,15 @@ namespace nextdbscan {
             std::vector<uint> &v_cell_nps,
             const uint max_d, const float e2, const uint m,
             const uint c1, const uint begin1, const uint c2, const uint begin2) noexcept {
-        // TODO use an int value instead to rule out zero quickly
-        bool all_range_check = fill_range_table(v_coords, v_index_maps, v_cell_ns,
-                v_range_table, c1, begin1, c2, begin2,
-                max_d, e2);
-        if (all_range_check) {
+
+        uint size1 = v_cell_ns[c1];
+        uint size2 = v_cell_ns[c2];
+        uint hits = fill_range_table(v_coords, v_index_maps, size1, size2,
+                v_range_table, c1, begin1, c2, begin2, max_d, e2);
+        if (hits == 0) {
+            return;
+        }
+        if (hits == size1*size2) {
             if (v_cell_nps[c1] < m) {
                 #pragma omp atomic
                 v_cell_nps[c1] += v_cell_ns[c2];
@@ -306,7 +321,7 @@ namespace nextdbscan {
                 v_cell_nps[c2] += v_cell_ns[c1];
             }
         } else {
-            update_cell_pair_nn(v_index_maps, v_cell_ns, v_cell_nps, v_point_nps, v_range_table,
+            update_cell_pair_nn(v_index_maps, size1, size2, v_cell_nps, v_point_nps, v_range_table,
                     v_range_cnt, c1, begin1, c2, begin2, v_cell_nps[c1] < m,
                     v_cell_nps[c2] < m);
         }
@@ -1367,7 +1382,7 @@ namespace nextdbscan {
         // TODO sort v_cluster_index
         v_cluster_label.resize(v_cluster_index.size(), LABEL_CELL);
 
-//        #pragma omp parallel for/* reduction(vec_min: v_cluster_label)*/ schedule(dynamic)
+        #pragma omp parallel for/* reduction(vec_min: v_cluster_label)*/ schedule(dynamic)
         for (uint i = 0; i < max_clusters; ++i) {
             if (v_labels[i] != LABEL_CELL) {
                 for (uint t = 0; t < n_threads; ++t) {
@@ -1639,6 +1654,7 @@ namespace nextdbscan {
             const uint m, const uint max_d, const float e, const uint n_threads,
             const uint node_index, const uint max_local_clusters) noexcept {
         const float e2 = e * e;
+        auto start_timestamp = std::chrono::high_resolution_clock::now();
         #pragma omp parallel for
         for (uint t = 0; t < n_threads; ++t) {
             v_t_c_labels[t].resize(max_local_clusters, LABEL_CELL);
@@ -1654,8 +1670,21 @@ namespace nextdbscan {
                     vv_range_counts[tid], vv_cell_type[node_index], vv_is_core[node_index], m, max_d, e, e2,
                     false);
         }
+        auto end_timestamp = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Labels phase 1: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
+                      << " milliseconds\n";
+        }
+        start_timestamp = std::chrono::high_resolution_clock::now();
         std::vector<int> v_labels(max_local_clusters, LABEL_CELL);
         process_local_labels(v_t_c_labels, v_labels, vv_cluster_label[node_index], n_threads, max_local_clusters);
+        end_timestamp = std::chrono::high_resolution_clock::now();
+        if (!g_quiet) {
+            std::cout << "Labels phase 2: "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
+                      << " milliseconds\n";
+        }
     }
 
 
@@ -1677,8 +1706,7 @@ namespace nextdbscan {
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
         }
-//        const auto e_inner = (e / 2);
-        const auto e_inner = (e / 1.8);
+        const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
         auto v_node_sizes = std::make_unique<uint[]>(n_nodes);
         auto v_node_offsets = std::make_unique<uint[]>(n_nodes);
@@ -1695,7 +1723,7 @@ namespace nextdbscan {
         measure_duration("Initialize Index Space: ", node_index == 0, [&]() -> void {
             #pragma omp parallel for
             for (uint l = 0; l < max_levels; l++) {
-                v_eps_levels[l] = (e_inner * powf(2, l));
+                v_eps_levels[l] = (e_inner * pow(2, l));
                 calc_dims_mult(&v_dims_mult[l * max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
             }
         });
@@ -1781,7 +1809,7 @@ namespace nextdbscan {
         });
         std::vector<int> v_c_index(v_node_sizes[node_index], UNASSIGNED);
         std::vector<std::vector<int>> v_t_c_labels(n_threads);
-        measure_duration("Local Tree NN: ", node_index == 0, [&]() -> void {
+        measure_duration("Local Tree Proximity: ", node_index == 0, [&]() -> void {
             #pragma omp parallel for schedule(dynamic)
             for (uint i = 0; i < v_tasks.size(); ++i) {
                 uint tid = omp_get_thread_num();
