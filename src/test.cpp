@@ -27,49 +27,43 @@ SOFTWARE.
 #include "gtest/gtest.h"
 
 TEST(ScanAccuracyAloiHsb2x2x2, m20_e001_d8_t2) {
-    nextdbscan::result result = nextdbscan::start(20, 0.01, 8, 2, "../input/aloi-hsb-2x2x2.csv");
+    nextdbscan::result result = nextdbscan::start(20, 0.01, 2, "../input/aloi-hsb-2x2x2_trimmed.bin", 0, 1);
     EXPECT_EQ(result.clusters, 129);
     EXPECT_EQ(result.core_count, 55256);
     EXPECT_EQ(result.noise, 43312);
 }
 
 TEST(ScanAccuracyAloiHsb2x2x2, m10_e001_d8_t2) {
-    nextdbscan::result result = nextdbscan::start(10, 0.01, 8, 2, "../input/aloi-hsb-2x2x2.csv");
+    nextdbscan::result result = nextdbscan::start(10, 0.01, 2, "../input/aloi-hsb-2x2x2_trimmed.csv", 0, 1);
     EXPECT_EQ(result.clusters, 297);
     EXPECT_EQ(result.core_count, 69606);
     EXPECT_EQ(result.noise, 30977);
 }
 
-TEST(ScanAccuracyAloiHsb2x2x2, m20_e001_d4_t2) {
-    nextdbscan::result result = nextdbscan::start(20, 0.01, 4, 2, "../input/aloi-hsb-2x2x2.csv");
-    EXPECT_EQ(result.clusters, 92);
-    EXPECT_EQ(result.core_count, 72578);
-    EXPECT_EQ(result.noise, 27284);
-}
 
 TEST(ScanAccuracyBremenSmall, m30_e20_d3_t2) {
-    nextdbscan::result result = nextdbscan::start(30, 20, 3, 2, "../input/bremenSmall.csv");
+    nextdbscan::result result = nextdbscan::start(30, 20, 2, "../input/bremen_small.bin", 0, 1);
     EXPECT_EQ(result.clusters, 2972);
     EXPECT_EQ(result.core_count, 1234425);
     EXPECT_EQ(result.noise, 1463461);
 }
 
 TEST(ScanAccuracyBremenSmall, m30_e10_d3_t2) {
-    nextdbscan::result result = nextdbscan::start(30, 10, 3, 2, "../input/bremenSmall.csv");
+    nextdbscan::result result = nextdbscan::start(30, 10, 2, "../input/bremen_small.csv", 0, 1);
     EXPECT_EQ(result.clusters, 1202);
     EXPECT_EQ(result.core_count, 263100);
     EXPECT_EQ(result.noise, 2641881);
 }
 
 TEST(ScanAccuracyBremenSmall, m10_e20_d3_t2) {
-    nextdbscan::result result = nextdbscan::start(10, 20, 3, 2, "../input/bremenSmall.csv");
+    nextdbscan::result result = nextdbscan::start(10, 20, 2, "../input/bremen_small.bin", 0, 1);
     EXPECT_EQ(result.clusters, 10712);
     EXPECT_EQ(result.core_count, 2286646);
     EXPECT_EQ(result.noise, 482406);
 }
 
 TEST(ScanAccuracyBremenSmall, m100_e30_d3_t2) {
-    nextdbscan::result result = nextdbscan::start(100, 30, 3, 2, "../input/bremenSmall.csv");
+    nextdbscan::result result = nextdbscan::start(100, 30, 2, "../input/bremen_small.bin", 0, 1);
     EXPECT_EQ(result.clusters, 480);
     EXPECT_EQ(result.core_count, 839729);
     EXPECT_EQ(result.noise, 1906449);
