@@ -25,17 +25,19 @@ uint deep_io::get_block_start_offset(const uint part_index, const uint number_of
     return offset;
 }
 
-void deep_io::load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_samples) {
+void deep_io::load_meta_data(std::istream &is, std::vector<float> &v_samples) {
     is.read((char *) &sample_no, sizeof(int));
     is.read((char *) &feature_no, sizeof(int));
     unread_samples = get_block_size(block_index, sample_no, block_no);
     block_sample_offset = get_block_start_offset(block_index, sample_no, block_no);
     feature_offset = 2 * sizeof(int) + (block_sample_offset * feature_no * sizeof(float));
-    v_samples = std::make_unique<float[]>(sample_no * feature_no);
+    v_samples.resize(unread_samples * feature_no);
+
+//    v_samples = std::make_unique<float[]>(sample_no * feature_no);
 //    std::fill(&v_samples[0], &v_samples[0] + sample_no * feature_no, UNDEFINED_VALUE);
 }
 
-int deep_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
+int deep_io::load_next_samples(std::vector<float> &v_samples) {
     std::ifstream ifs(file, std::ios::in | std::ifstream::binary);
     if (!is_initialized) {
         load_meta_data(ifs, v_samples);
@@ -45,7 +47,7 @@ int deep_io::load_next_samples(std::unique_ptr<float[]> &v_samples) {
     uint bytes_read = 0;
     ifs.seekg(feature_offset, std::istream::beg);
 //    std::cout << "feature offset: " << feature_offset << " about to read " << buffer_samples << " samples" << std::endl;
-    if (!ifs.read((char *) &v_samples[block_sample_offset * feature_no], buffer_samples * feature_no * sizeof(float))) {
+    if (!ifs.read((char *) &v_samples[0/*block_sample_offset * feature_no*/], buffer_samples * feature_no * sizeof(float))) {
         if (ifs.bad()) {
             std::cerr << "Error: " << strerror(errno);
         } else {

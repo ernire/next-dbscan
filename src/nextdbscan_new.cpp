@@ -90,7 +90,7 @@ namespace nextdbscan {
         }
     }
 
-    void calc_bounds(std::unique_ptr<float[]> &v_coords, uint n, float *min_bounds,
+    void calc_bounds(std::vector<float> &v_coords, uint n, float *min_bounds,
             float *max_bounds, const uint max_d, const uint node_offset) noexcept {
         for (uint d = 0; d < max_d; d++) {
             min_bounds[d] = INT32_MAX;
@@ -339,7 +339,7 @@ namespace nextdbscan {
         }
     }
 
-    void read_input_txt(const std::string &in_file, std::unique_ptr<float[]> &v_points, int max_d) noexcept {
+    void read_input_txt(const std::string &in_file, std::vector<float> &v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
         std::stringstream ss;
@@ -403,7 +403,7 @@ namespace nextdbscan {
         is.close();
     }
 
-    uint process_input(const std::string &in_file, std::unique_ptr<float[]> &v_points, uint &n, uint &max_d,
+    uint load_input(const std::string &in_file, std::vector<float> &v_points, uint &n, uint &max_d,
             const uint blocks_no, const uint block_index) noexcept {
         std::string s_cmp = ".bin";
         int total_samples = 0;
@@ -422,7 +422,8 @@ namespace nextdbscan {
             return data->sample_no;
         } else {
             count_lines_and_dimensions(in_file, n, max_d);
-            v_points = std::make_unique<float[]>(n * max_d);
+//            v_points = std::make_unique<float[]>(n * max_d);
+            v_points.resize(n * max_d);
             std::cout << "WARNING: USING VERY SLOW NON-PARALLEL I/O." << std::endl;
             read_input_txt(in_file, v_points, max_d);
             total_samples = n;
@@ -484,7 +485,7 @@ namespace nextdbscan {
         std::cout << std::endl;
     }
 
-    int determine_data_boundaries(std::unique_ptr<float[]> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
+    int determine_data_boundaries(std::vector<float> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
             std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint node_offset, const uint max_d,
             const float e_inner) noexcept {
         float max_limit = INT32_MIN;
@@ -961,7 +962,7 @@ namespace nextdbscan {
 
 #endif
 
-    void determine_index_values(std::unique_ptr<float[]> &v_coords,
+    void determine_index_values(std::vector<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
@@ -982,7 +983,7 @@ namespace nextdbscan {
         }
     }
 
-    uint index_level_and_get_cells(std::unique_ptr<float[]> &v_coords,
+    uint index_level_and_get_cells(std::vector<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
@@ -1203,7 +1204,7 @@ namespace nextdbscan {
         }
     }
 
-    void index_points(std::unique_ptr<float[]> &v_coords, std::unique_ptr<float[]> &v_eps_levels,
+    void index_points(std::vector<float> &v_coords, std::unique_ptr<float[]> &v_eps_levels,
             std::unique_ptr<ull[]> &v_dims_mult,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
@@ -1430,12 +1431,13 @@ namespace nextdbscan {
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_num_threads(n_threads);
         uint n, max_d, total_samples;
-        std::unique_ptr<float[]> v_coords;
+//        std::unique_ptr<float[]> v_coords;
+        std::vector<float> v_coords;
         if (node_index == 0) {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " nodes." << std::endl;
         }
         measure_duration("Input Read: ", node_index == 0, [&]() -> void {
-            total_samples = process_input(in_file, v_coords, n, max_d, n_nodes, node_index);
+            total_samples = load_input(in_file, v_coords, n, max_d, n_nodes, node_index);
         });
         auto time_data_read = std::chrono::high_resolution_clock::now();
         if (node_index == 0) {

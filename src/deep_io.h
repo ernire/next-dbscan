@@ -15,10 +15,10 @@ class deep_io {
 private:
     const char *file;
     const uint block_no, block_index, max_samples_per_batch;
-    long long feature_offset = UNDEFINED_VALUE;
+    int feature_offset = UNDEFINED_VALUE;
     bool is_initialized = false;
 
-    void load_meta_data(std::istream &is, std::unique_ptr<float[]> &v_samples);
+    void load_meta_data(std::istream &is, std::vector<float> &v_samples);
 
 public:
 //    float *features;
@@ -42,7 +42,7 @@ public:
 
     ~deep_io() = default;
 
-    int load_next_samples(std::unique_ptr<float[]> &v_samples);
+    int load_next_samples(std::vector<float> &v_samples);
 
     static void get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
             uint number_of_samples, uint number_of_blocks);
