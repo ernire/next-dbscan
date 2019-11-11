@@ -1,6 +1,3 @@
-//
-// Created by Ernir Erlingsson (ernire@gmail.com, ernire.org) on 20.2.2019.
-//
 /*
 Copyright (c) 2019, Ernir Erlingsson
 

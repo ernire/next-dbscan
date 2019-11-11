@@ -990,8 +990,8 @@ namespace nextdbscan {
             std::vector<uint> &v_cell_ns,
             std::vector<ull> &v_value_map,
             std::vector<std::vector<uint>> &v_bucket,
-            std::vector<ull> &v_bucket_seperator,
-            std::vector<ull> &v_bucket_seperator_tmp,
+            std::vector<ull> &v_bucket_separator,
+            std::vector<ull> &v_bucket_separator_tmp,
             std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
             const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
             const ull *dims_mult, const uint n_threads) noexcept {
@@ -1021,7 +1021,7 @@ namespace nextdbscan {
             determine_index_values(v_coords, v_min_bounds, vv_index_map, vv_cell_begin, v_value_map,
                     dims_mult, l, v_omp_sizes[tid], v_omp_offsets[tid], max_d, level_eps, node_offset);
             sort_indexes_omp(v_omp_sizes, v_omp_offsets, vv_index_map[l], v_value_map, v_bucket,
-                    v_bucket_seperator, v_bucket_seperator_tmp, v_iterator, tid, n_threads, is_parallel_sort);
+                    v_bucket_separator, v_bucket_separator_tmp, v_iterator, tid, n_threads, is_parallel_sort);
             #pragma omp barrier
             if (v_omp_sizes[tid] > 0) {
                 uint new_cells = 1;
@@ -1204,7 +1204,8 @@ namespace nextdbscan {
         }
     }
 
-    void index_points(std::vector<float> &v_coords, std::unique_ptr<float[]> &v_eps_levels,
+    void index_points(std::vector<float> &v_coords,
+            std::unique_ptr<float[]> &v_eps_levels,
             std::unique_ptr<ull[]> &v_dims_mult,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
@@ -1216,16 +1217,15 @@ namespace nextdbscan {
             const uint max_levels, const uint n) noexcept {
         std::vector<ull> v_value_map;
         std::vector<std::vector<uint>> v_bucket(n_threads);
-        std::vector<ull> v_bucket_seperator;
-        v_bucket_seperator.reserve(n_threads);
-        std::vector<ull> v_bucket_seperator_tmp;
-        v_bucket_seperator_tmp.reserve(n_threads * n_threads);
+        std::vector<ull> v_bucket_separator;
+        v_bucket_separator.reserve(n_threads);
+        std::vector<ull> v_bucket_separator_tmp;
+        v_bucket_separator_tmp.reserve(n_threads * n_threads);
         std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
-//        uint size = v_node_sizes[node_index];
         uint size = n;
         for (int l = 0; l < max_levels; ++l) {
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
-                    vv_cell_ns[l], v_value_map, v_bucket, v_bucket_seperator, v_bucket_seperator_tmp,
+                    vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
@@ -1526,9 +1526,7 @@ namespace nextdbscan {
                     max_d, n_threads);
             populate_tasks(vv_cell_begin, v_tasks, max_level);
         });
-        std::vector<bool> v_task_active(v_tasks.size(), true);
         std::vector<int> v_c_labels(n, UNASSIGNED);
-
 
         measure_duration("Local Tree Proximity: ", node_index == 0, [&]() -> void {
             uint task_cnt = 0;
@@ -1545,13 +1543,13 @@ namespace nextdbscan {
                     uint c1_index = vv_index_map[l][begin + c1];
                     for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
                         uint c2_index = vv_index_map[l][begin + c2];
-                        if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
-                                &vv_max_cell_dim[l - 1][c1_index * max_d],
-                                &vv_min_cell_dim[l - 1][c2_index * max_d],
-                                &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+                        if (is_in_reach(&vv_min_cell_dim[l-1][c1_index * max_d],
+                                &vv_max_cell_dim[l-1][c1_index * max_d],
+                                &vv_min_cell_dim[l-1][c2_index * max_d],
+                                &vv_max_cell_dim[l-1][c2_index * max_d], max_d, e)) {
                             #pragma omp atomic
                             ++task_cnt;
-                            vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
+                            vv_stacks3[tid].emplace_back(l-1, c1_index, c2_index);
                             bool ret = process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
                                     vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
                                     v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
@@ -1566,7 +1564,6 @@ namespace nextdbscan {
                 if (!check) {
                     #pragma omp atomic
                     ++empty_task_cnt;
-                    v_task_active[i] = false;
                 }
             }
             std::cout << "empty tasks: " << empty_task_cnt << " of " << task_cnt << " tasks." << std::endl;
@@ -1595,9 +1592,6 @@ namespace nextdbscan {
         measure_duration("Local Tree Labels: ", node_index == 0, [&]() -> void {
             #pragma omp parallel for schedule(dynamic)
             for (uint i = 0; i < v_tasks.size(); ++i) {
-                if (!v_task_active[i]) {
-                    continue;
-                }
                 uint tid = omp_get_thread_num();
                 uint l = v_tasks[i].l;
                 uint c = v_tasks[i].c;
@@ -1607,9 +1601,9 @@ namespace nextdbscan {
                     for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
                         uint c2_index = vv_index_map[l][begin + c2];
                         if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
-                                &vv_max_cell_dim[l - 1][c1_index * max_d],
-                                &vv_min_cell_dim[l - 1][c2_index * max_d],
-                                &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+                                &vv_max_cell_dim[l-1][c1_index * max_d],
+                                &vv_min_cell_dim[l-1][c2_index * max_d],
+                                &vv_max_cell_dim[l-1][c2_index * max_d], max_d, e)) {
                             vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
                             process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
                                     vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,

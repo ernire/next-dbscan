@@ -1,10 +1,3 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <iomanip>
-#include <functional>
-#include <iterator>
-
 /*
 Copyright (c) 2019, Ernir Erlingsson
 
@@ -27,36 +20,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
 
-void parse_svm_light_data(std::istream &is, const std::function<void(int, int, float *)> &sample_callback) {
-    std::string line;
-    int c, i, m = 2;
-    float f;
-    float sample_features[3];
-
-    is.clear();
-    is.seekg(0, std::istream::beg);
-    while (std::getline(is, line)) {
-//        std::fill(sample_features, sample_features+3, 0);
-        std::istringstream iss(line);
-        // class
-        for (i = 0; i < 3; ++i) {
-            iss >> sample_features[i];
-        }
-        /*
-        iss >> c;
-        while (!iss.eof()) {
-            iss >> i;
-            // index starts at 1, therefore we decrement by one
-//            i--;
-            if (i > m) m = i;
-//            iss.ignore(2, ':');
-//            iss >> f;
-            sample_features[i] = f;
-        }
-         */
-        sample_callback(m+1, c, sample_features);
-    }
-}
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <iomanip>
+#include <functional>
+#include <iterator>
 
 void count_lines_and_dimensions(const std::string &in_file, int &lines, int &dimensions) noexcept {
     std::ifstream is(in_file);
