@@ -235,9 +235,9 @@ namespace nextdbscan {
         }
     }
 
-    uint fill_range_table(const float *v_coords, std::vector<uint> &v_index_map_level,
-            const uint size1, const uint size2, std::vector<bool> &v_range_table, const uint c1,
-            const uint begin1, const uint c2, const uint begin2, const uint max_d, const float e2) noexcept {
+    uint fill_range_table(std::vector<float> &v_coords, std::vector<uint> &v_index_map_level,
+            const uint size1, const uint size2, std::vector<bool> &v_range_table,
+            const uint begin1, const uint begin2, const uint max_d, const float e2) noexcept {
         uint hits = 0;
         uint index = 0;
         uint total_size = size1 * size2;
@@ -303,7 +303,8 @@ namespace nextdbscan {
         }
     }
 
-    void process_pair_proximity(const float *v_coords, std::vector<uint> &v_index_maps,
+    void process_pair_proximity(std::vector<float> &v_coords,
+            std::vector<uint> &v_index_maps,
             std::vector<uint> &v_point_nps,
             std::vector<uint> &v_cell_ns,
             std::vector<bool> &v_range_table,
@@ -315,7 +316,7 @@ namespace nextdbscan {
         uint size1 = v_cell_ns[c1];
         uint size2 = v_cell_ns[c2];
         uint hits = fill_range_table(v_coords, v_index_maps, size1, size2,
-                v_range_table, c1, begin1, c2, begin2, max_d, e2);
+                v_range_table, begin1, begin2, max_d, e2);
         if (hits == 0) {
             return;
         }
@@ -412,13 +413,11 @@ namespace nextdbscan {
                 std::cerr << "Critical Error: Failed to read input" << std::endl;
                 exit(-1);
             }
-//            std::cout << "read data bytes: " << read_bytes << std::endl;
             n = data->sample_read_no;
             max_d = data->feature_no;
             return data->sample_no;
         } else {
             count_lines_and_dimensions(in_file, n, max_d);
-//            v_points = std::make_unique<float[]>(n * max_d);
             v_points.resize(n * max_d);
             std::cout << "WARNING: USING VERY SLOW NON-PARALLEL I/O." << std::endl;
             read_input_txt(in_file, v_points, max_d);
@@ -516,11 +515,14 @@ namespace nextdbscan {
         return label;
     }
 
-    void process_pair_labels(const float *v_coords, std::vector<int> &v_c_labels,
-            std::vector<std::vector<uint>> &vv_cell_ns, std::vector<std::vector<uint>> &vv_index_maps,
-            std::vector<uint8_t> &v_cell_types, std::vector<uint8_t> &v_is_core,
-            const uint c1, const uint c2, const uint l, const uint begin1, const uint begin2, const uint max_d,
-            const float e2) noexcept {
+    void process_pair_labels(std::vector<float> &v_coords,
+            std::vector<int> &v_c_labels,
+            std::vector<std::vector<uint>> &vv_cell_ns,
+            std::vector<std::vector<uint>> &vv_index_maps,
+            std::vector<uint8_t> &v_cell_types,
+            std::vector<uint8_t> &v_is_core,
+            const uint c1, const uint c2, const uint l, const uint begin1, const uint begin2,
+            const uint max_d, const float e2) noexcept {
         // Do both cells have cores ?
         if (v_cell_types[c1] != NC && v_cell_types[c2] != NC) {
             for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
@@ -547,7 +549,7 @@ namespace nextdbscan {
                 }
             }
         } else {
-            // one NC one not
+            // one NC one SC or AC
             for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
                 uint p1 = vv_index_maps[l][begin1 + k1];
                 if (!v_is_core[p1] && v_c_labels[p1] != UNASSIGNED)
@@ -594,6 +596,7 @@ namespace nextdbscan {
         return true;
     }
 
+    /*
     void process_cell_pair(const float *v_coords_1, const float *v_coords_2,
             std::vector<std::vector<uint>> &vv_index_maps_1,
             std::vector<std::vector<uint>> &vv_index_maps_2,
@@ -656,6 +659,7 @@ namespace nextdbscan {
             }
         }
     }
+     */
 
 #ifdef MPI_ON
     template<class T>
@@ -1085,8 +1089,7 @@ namespace nextdbscan {
         return unique_new_cells;
     }
 
-    // TODO, just pass the vector ?
-    bool process_pair_stack(const float *v_coords,
+    bool process_pair_stack(std::vector<float> &v_coords,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<std::vector<uint>> &vv_cell_ns,
@@ -1427,7 +1430,6 @@ namespace nextdbscan {
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_num_threads(n_threads);
         uint n, max_d, total_samples;
-//        std::unique_ptr<float[]> v_coords;
         std::vector<float> v_coords;
         if (node_index == 0) {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " nodes." << std::endl;
@@ -1442,9 +1444,6 @@ namespace nextdbscan {
         }
         const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
-//        auto v_node_sizes = std::make_unique<uint[]>(n_nodes);
-//        auto v_node_offsets = std::make_unique<uint[]>(n_nodes);
-//        deep_io::get_blocks_meta(v_node_sizes, v_node_offsets, total_samples, n_nodes);
         auto v_min_bounds = std::make_unique<float[]>(max_d);
         auto v_max_bounds = std::make_unique<float[]>(max_d);
         int max_level;
@@ -1553,15 +1552,11 @@ namespace nextdbscan {
                             #pragma omp atomic
                             ++task_cnt;
                             vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                            bool ret = process_pair_stack(&v_coords[0],
-                                    vv_index_map, vv_cell_begin,
-                                    vv_cell_ns,
-                                    vv_min_cell_dim, vv_max_cell_dim,
-                                    v_leaf_cell_np,
-                                    v_point_np, vv_stacks3[tid], vv_range_table[tid],
-                                    vv_range_counts[tid],
-                                    v_cell_type, v_is_core, v_c_labels, m, max_d, e, e2,
-                                    true);
+                            bool ret = process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
+                                    vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
+                                    v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
+                                    vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
+                                    m, max_d, e, e2, true);
                             if (ret) {
                                 check = true;
                             }
@@ -1616,15 +1611,11 @@ namespace nextdbscan {
                                 &vv_min_cell_dim[l - 1][c2_index * max_d],
                                 &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
                             vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                            process_pair_stack(&v_coords[0],
-                                    vv_index_map, vv_cell_begin,
-                                    vv_cell_ns,
-                                    vv_min_cell_dim, vv_max_cell_dim,
-                                    v_leaf_cell_np,
-                                    v_point_np, vv_stacks3[tid], vv_range_table[tid],
-                                    vv_range_counts[tid],
-                                    v_cell_type, v_is_core, v_c_labels, m, max_d, e, e2,
-                                    false);
+                            process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
+                                    vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
+                                    v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
+                                    vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
+                                    m, max_d, e, e2, false);
                         }
                     }
                 }
