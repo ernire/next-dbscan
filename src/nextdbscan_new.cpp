@@ -1423,39 +1423,42 @@ namespace nextdbscan {
         measure_duration("Local Tree Proximity: ", node_index == 0, [&]() -> void {
             uint task_cnt = 0;
             uint empty_task_cnt = 0;
-            // TODO remove useless tasks
-            #pragma omp parallel for schedule(dynamic)
-            for (uint i = 0; i < v_tasks.size(); ++i) {
+
+            #pragma omp parallel
+            {
                 uint tid = omp_get_thread_num();
-                uint l = v_tasks[i].l;
-                uint c = v_tasks[i].c;
-                uint begin = vv_cell_begin[l][c];
-                bool check = false;
-                for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
-                    uint c1_index = vv_index_map[l][begin + c1];
-                    for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
-                        uint c2_index = vv_index_map[l][begin + c2];
-                        if (is_in_reach(&vv_min_cell_dim[l-1][c1_index * max_d],
-                                &vv_max_cell_dim[l-1][c1_index * max_d],
-                                &vv_min_cell_dim[l-1][c2_index * max_d],
-                                &vv_max_cell_dim[l-1][c2_index * max_d], max_d, e)) {
-                            #pragma omp atomic
-                            ++task_cnt;
-                            vv_stacks3[tid].emplace_back(l-1, c1_index, c2_index);
-                            bool ret = process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
-                                    vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
-                                    v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
-                                    vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
-                                    m, max_d, e, e2, true);
-                            if (ret) {
-                                check = true;
+                #pragma omp for schedule(dynamic)
+                for (uint i = 0; i < v_tasks.size(); ++i) {
+                    uint l = v_tasks[i].l;
+                    uint c = v_tasks[i].c;
+                    uint begin = vv_cell_begin[l][c];
+                    bool check = false;
+                    for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
+                        uint c1_index = vv_index_map[l][begin + c1];
+                        for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                            uint c2_index = vv_index_map[l][begin + c2];
+                            if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
+                                    &vv_max_cell_dim[l - 1][c1_index * max_d],
+                                    &vv_min_cell_dim[l - 1][c2_index * max_d],
+                                    &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+                                #pragma omp atomic
+                                ++task_cnt;
+                                vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
+                                bool ret = process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
+                                        vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
+                                        v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
+                                        vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
+                                        m, max_d, e, e2, true);
+                                if (ret) {
+                                    check = true;
+                                }
                             }
                         }
                     }
-                }
-                if (!check) {
-                    #pragma omp atomic
-                    ++empty_task_cnt;
+                    if (!check) {
+                        #pragma omp atomic
+                        ++empty_task_cnt;
+                    }
                 }
             }
             std::cout << "empty tasks: " << empty_task_cnt << " of " << task_cnt << " tasks." << std::endl;
@@ -1482,26 +1485,29 @@ namespace nextdbscan {
         });
 
         measure_duration("Local Tree Labels: ", node_index == 0, [&]() -> void {
-            #pragma omp parallel for schedule(dynamic)
-            for (uint i = 0; i < v_tasks.size(); ++i) {
+            #pragma omp parallel
+            {
                 uint tid = omp_get_thread_num();
-                uint l = v_tasks[i].l;
-                uint c = v_tasks[i].c;
-                uint begin = vv_cell_begin[l][c];
-                for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
-                    uint c1_index = vv_index_map[l][begin + c1];
-                    for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
-                        uint c2_index = vv_index_map[l][begin + c2];
-                        if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
-                                &vv_max_cell_dim[l-1][c1_index * max_d],
-                                &vv_min_cell_dim[l-1][c2_index * max_d],
-                                &vv_max_cell_dim[l-1][c2_index * max_d], max_d, e)) {
-                            vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                            process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
-                                    vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
-                                    v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
-                                    vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
-                                    m, max_d, e, e2, false);
+                #pragma omp for schedule(dynamic)
+                for (uint i = 0; i < v_tasks.size(); ++i) {
+                    uint l = v_tasks[i].l;
+                    uint c = v_tasks[i].c;
+                    uint begin = vv_cell_begin[l][c];
+                    for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
+                        uint c1_index = vv_index_map[l][begin + c1];
+                        for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                            uint c2_index = vv_index_map[l][begin + c2];
+                            if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
+                                    &vv_max_cell_dim[l - 1][c1_index * max_d],
+                                    &vv_min_cell_dim[l - 1][c2_index * max_d],
+                                    &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+                                vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
+                                process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
+                                        vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
+                                        v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
+                                        vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
+                                        m, max_d, e, e2, false);
+                            }
                         }
                     }
                 }
