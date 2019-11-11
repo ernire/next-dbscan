@@ -47,18 +47,14 @@ namespace nextdbscan {
     static const uint8_t AC = 1;
     static const uint8_t SC = 2;
 
-    static const int LABEL_CELL = INT32_MAX;
-
     typedef unsigned long long ull;
-
-//    typedef unsigned __int128 ull;
 
     static bool g_quiet = false;
 
-    struct single_cell {
+    struct cell_meta {
         uint l, c;
 
-        single_cell(uint l, uint c) : l(l), c(c) {}
+        cell_meta(uint l, uint c) : l(l), c(c) {}
     };
 
     struct cell_meta_2 {
@@ -91,14 +87,14 @@ namespace nextdbscan {
     }
 
     void calc_bounds(std::vector<float> &v_coords, uint n, float *min_bounds,
-            float *max_bounds, const uint max_d, const uint node_offset) noexcept {
+            float *max_bounds, const uint max_d) noexcept {
         for (uint d = 0; d < max_d; d++) {
             min_bounds[d] = INT32_MAX;
             max_bounds[d] = INT32_MIN;
         }
         #pragma omp parallel for reduction(max:max_bounds[:max_d]) reduction(min:min_bounds[:max_d])
         for (uint i = 0; i < n; i++) {
-            size_t index = (i + node_offset) * max_d;
+            size_t index = i * max_d;
             for (uint d = 0; d < max_d; d++) {
                 if (v_coords[index + d] > max_bounds[d]) {
                     max_bounds[d] = v_coords[index + d];
@@ -486,10 +482,10 @@ namespace nextdbscan {
     }
 
     int determine_data_boundaries(std::vector<float> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
-            std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint node_offset, const uint max_d,
+            std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint max_d,
             const float e_inner) noexcept {
         float max_limit = INT32_MIN;
-        calc_bounds(v_coords, n, &v_min_bounds[0], &v_max_bounds[0], max_d, node_offset);
+        calc_bounds(v_coords, n, &v_min_bounds[0], &v_max_bounds[0], max_d);
 #ifdef MPI_ON
         auto v_global_min_bounds = std::make_unique<float[]>(max_d);
         auto v_global_max_bounds = std::make_unique<float[]>(max_d);
@@ -1089,6 +1085,7 @@ namespace nextdbscan {
         return unique_new_cells;
     }
 
+    // TODO, just pass the vector ?
     bool process_pair_stack(const float *v_coords,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
@@ -1212,10 +1209,8 @@ namespace nextdbscan {
             std::vector<std::vector<uint>> &vv_cell_ns,
             std::vector<std::vector<float>> &vv_min_cell_dim,
             std::vector<std::vector<float>> &vv_max_cell_dim,
-            std::unique_ptr<uint[]> &v_node_sizes,
-            std::unique_ptr<uint[]> &v_node_offsets,
-            const uint node_index, const uint max_d, const uint n_threads,
-            const uint max_levels) noexcept {
+            const uint max_d, const uint n_threads,
+            const uint max_levels, const uint n) noexcept {
         std::vector<ull> v_value_map;
         std::vector<std::vector<uint>> v_bucket(n_threads);
         std::vector<ull> v_bucket_seperator;
@@ -1223,13 +1218,14 @@ namespace nextdbscan {
         std::vector<ull> v_bucket_seperator_tmp;
         v_bucket_seperator_tmp.reserve(n_threads * n_threads);
         std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
-        uint size = v_node_sizes[node_index];
+//        uint size = v_node_sizes[node_index];
+        uint size = n;
         for (int l = 0; l < max_levels; ++l) {
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_seperator, v_bucket_seperator_tmp,
-                    v_iterator, size, l, max_d, v_node_offsets[node_index], v_eps_levels[l],
+                    v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
-            calculate_level_cell_bounds(&v_coords[v_node_offsets[node_index] * max_d], vv_cell_begin[l], vv_cell_ns[l],
+            calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
         }
     }
@@ -1410,7 +1406,7 @@ namespace nextdbscan {
 #endif
 
     void populate_tasks(std::vector<std::vector<uint>> &vv_cell_begin,
-            std::vector<single_cell> &v_tasks,
+            std::vector<cell_meta> &v_tasks,
             const uint max_level) noexcept {
 
         uint size = 0;
@@ -1446,15 +1442,15 @@ namespace nextdbscan {
         }
         const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
-        auto v_node_sizes = std::make_unique<uint[]>(n_nodes);
-        auto v_node_offsets = std::make_unique<uint[]>(n_nodes);
-        deep_io::get_blocks_meta(v_node_sizes, v_node_offsets, total_samples, n_nodes);
+//        auto v_node_sizes = std::make_unique<uint[]>(n_nodes);
+//        auto v_node_offsets = std::make_unique<uint[]>(n_nodes);
+//        deep_io::get_blocks_meta(v_node_sizes, v_node_offsets, total_samples, n_nodes);
         auto v_min_bounds = std::make_unique<float[]>(max_d);
         auto v_max_bounds = std::make_unique<float[]>(max_d);
         int max_level;
         measure_duration("Determine Data Boundaries: ", node_index == 0, [&]() -> void {
             max_level = determine_data_boundaries(v_coords, v_min_bounds, v_max_bounds, n,
-                    v_node_offsets[node_index], max_d, e_inner);
+                    max_d, e_inner);
         });
         auto v_eps_levels = std::make_unique<float[]>(max_level);
         auto v_dims_mult = std::make_unique<ull[]>(max_level * max_d);
@@ -1506,16 +1502,15 @@ namespace nextdbscan {
         measure_duration("Index and Bounds: ", node_index == 0, [&]() -> void {
             index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
                     vv_cell_begin, vv_cell_ns, vv_min_cell_dim,
-                    vv_max_cell_dim, v_node_sizes, v_node_offsets, node_index, max_d,
-                    n_threads, max_level);
+                    vv_max_cell_dim, max_d, n_threads, max_level, n);
         });
         std::vector<std::vector<cell_meta_3>> vv_stacks3(n_threads);
         std::vector<std::vector<bool>> vv_range_table(n_threads);
         std::vector<std::vector<uint>> vv_range_counts(n_threads);
         std::vector<uint> v_leaf_cell_np(vv_cell_ns[0].size(), 0);
-        std::vector<uint> v_point_np(v_node_sizes[0], 0);
+        std::vector<uint> v_point_np(n, 0);
         std::vector<uint8_t> v_cell_type(vv_cell_ns[0].size(), NC);
-        std::vector<uint8_t> v_is_core(v_node_sizes[0], 0);
+        std::vector<uint8_t> v_is_core(n, 0);
         /*
 #ifdef MPI_ON
         if (n_nodes > 1) {
@@ -1526,14 +1521,14 @@ namespace nextdbscan {
         }
 #endif
          */
-        std::vector<single_cell> v_tasks;
+        std::vector<cell_meta> v_tasks;
         measure_duration("Stacks and Tasks: ", node_index == 0, [&]() -> void {
             init_stacks(vv_cell_ns, v_leaf_cell_np, vv_stacks3, vv_range_table, vv_range_counts,
                     max_d, n_threads);
             populate_tasks(vv_cell_begin, v_tasks, max_level);
         });
         std::vector<bool> v_task_active(v_tasks.size(), true);
-        std::vector<int> v_c_labels(v_node_sizes[node_index], UNASSIGNED);
+        std::vector<int> v_c_labels(n, UNASSIGNED);
 
 
         measure_duration("Local Tree Proximity: ", node_index == 0, [&]() -> void {
@@ -1558,7 +1553,7 @@ namespace nextdbscan {
                             #pragma omp atomic
                             ++task_cnt;
                             vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                            bool ret = process_pair_stack(&v_coords[v_node_offsets[node_index] * max_d],
+                            bool ret = process_pair_stack(&v_coords[0],
                                     vv_index_map, vv_cell_begin,
                                     vv_cell_ns,
                                     vv_min_cell_dim, vv_max_cell_dim,
@@ -1621,7 +1616,7 @@ namespace nextdbscan {
                                 &vv_min_cell_dim[l - 1][c2_index * max_d],
                                 &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
                             vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                            process_pair_stack(&v_coords[v_node_offsets[node_index] * max_d],
+                            process_pair_stack(&v_coords[0],
                                     vv_index_map, vv_cell_begin,
                                     vv_cell_ns,
                                     vv_min_cell_dim, vv_max_cell_dim,
