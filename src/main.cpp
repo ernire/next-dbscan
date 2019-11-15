@@ -35,7 +35,7 @@ SOFTWARE.
 
 void usage() {
     std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl
-              << "    Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
+              << "    CSV Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
               << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
               << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
               << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl

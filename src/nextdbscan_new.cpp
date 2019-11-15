@@ -33,8 +33,12 @@ SOFTWARE.
 #include <numeric>
 #include <functional>
 //#define MPI_ON
+//#define CUDA_ON
 #ifdef MPI_ON
 #include <mpi.h>
+#endif
+#ifdef CUDA_ON
+#include <thrust/device_vector.h>
 #endif
 #include "nextdbscan.h"
 #include "deep_io.h"
@@ -48,6 +52,9 @@ namespace nextdbscan {
     static const uint8_t SC = 2;
 
     typedef unsigned long long ull;
+
+
+
 
     static bool g_quiet = false;
 
@@ -86,7 +93,7 @@ namespace nextdbscan {
         }
     }
 
-    void calc_bounds(std::vector<float> &v_coords, uint n, float *min_bounds,
+    void calc_bounds(s_vec<float> &v_coords, uint n, float *min_bounds,
             float *max_bounds, const uint max_d) noexcept {
         for (uint d = 0; d < max_d; d++) {
             min_bounds[d] = INT32_MAX;
@@ -122,16 +129,6 @@ namespace nextdbscan {
                 }
             }
         }
-    }
-
-    inline float dist_leq_val(const float *coord1, const float *coord2, const int max_d) noexcept {
-        float tmp = 0, tmp2;
-
-        for (int d = 0; d < max_d; d++) {
-            tmp2 = coord1[d] - coord2[d];
-            tmp += tmp2 * tmp2;
-        }
-        return tmp;
     }
 
     inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
@@ -216,7 +213,7 @@ namespace nextdbscan {
         }
     }
 
-    uint fill_range_table(std::vector<float> &v_coords, std::vector<uint> &v_index_map_level,
+    uint fill_range_table(s_vec<float> &v_coords, std::vector<uint> &v_index_map_level,
             const uint size1, const uint size2, std::vector<bool> &v_range_table,
             const uint begin1, const uint begin2, const uint max_d, const float e2) noexcept {
         uint hits = 0;
@@ -284,7 +281,7 @@ namespace nextdbscan {
         }
     }
 
-    void process_pair_proximity(std::vector<float> &v_coords,
+    void process_pair_proximity(s_vec<float> &v_coords,
             std::vector<uint> &v_index_maps,
             std::vector<uint> &v_point_nps,
             std::vector<uint> &v_cell_ns,
@@ -317,7 +314,7 @@ namespace nextdbscan {
         }
     }
 
-    void read_input_txt(const std::string &in_file, std::vector<float> &v_points, int max_d) noexcept {
+    void read_input_txt(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
         std::stringstream ss;
@@ -381,7 +378,7 @@ namespace nextdbscan {
         is.close();
     }
 
-    uint load_input(const std::string &in_file, std::vector<float> &v_points, uint &n, uint &max_d,
+    uint load_input(const std::string &in_file, s_vec<float> &v_points, uint &n, uint &max_d,
             const uint blocks_no, const uint block_index) noexcept {
         std::string s_cmp = ".bin";
         int total_samples = 0;
@@ -461,7 +458,7 @@ namespace nextdbscan {
         std::cout << std::endl;
     }
 
-    int determine_data_boundaries(std::vector<float> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
+    int determine_data_boundaries(s_vec<float> &v_coords, std::unique_ptr<float[]> &v_min_bounds,
             std::unique_ptr<float[]> &v_max_bounds, const uint n, const uint max_d,
             const float e_inner) noexcept {
         float max_limit = INT32_MIN;
@@ -496,7 +493,7 @@ namespace nextdbscan {
         return label;
     }
 
-    void process_pair_labels(std::vector<float> &v_coords,
+    void process_pair_labels(s_vec<float> &v_coords,
             std::vector<int> &v_c_labels,
             std::vector<std::vector<uint>> &vv_cell_ns,
             std::vector<std::vector<uint>> &vv_index_maps,
@@ -856,7 +853,7 @@ namespace nextdbscan {
 
 #endif
 
-    void determine_index_values(std::vector<float> &v_coords,
+    void determine_index_values(s_vec<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
@@ -877,7 +874,19 @@ namespace nextdbscan {
         }
     }
 
-    uint index_level_and_get_cells(std::vector<float> &v_coords,
+#ifdef CUDA_ON
+    uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
+            thrust::device_vector<ull> &v_value_map,
+            const uint size, const float level_eps, const ull *dims_mult) {
+        v_value_map.resize(size);
+
+
+
+        return 0;
+    }
+#endif
+
+    uint index_level_and_get_cells(s_vec<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
@@ -983,7 +992,7 @@ namespace nextdbscan {
         return unique_new_cells;
     }
 
-    bool process_pair_stack(std::vector<float> &v_coords,
+    bool process_pair_stack(s_vec<float> &v_coords,
             std::vector<std::vector<uint>> &vv_index_map,
             std::vector<std::vector<uint>> &vv_cell_begin,
             std::vector<std::vector<uint>> &vv_cell_ns,
@@ -1097,7 +1106,7 @@ namespace nextdbscan {
         }
     }
 
-    void index_points(std::vector<float> &v_coords,
+    void index_points(s_vec<float> &v_coords,
             std::unique_ptr<float[]> &v_eps_levels,
             std::unique_ptr<ull[]> &v_dims_mult,
             std::unique_ptr<float[]> &v_min_bounds,
@@ -1108,24 +1117,34 @@ namespace nextdbscan {
             std::vector<std::vector<float>> &vv_max_cell_dim,
             const uint max_d, const uint n_threads,
             const uint max_levels, const uint n) noexcept {
-        std::vector<ull> v_value_map;
-        std::vector<std::vector<uint>> v_bucket(n_threads);
-        std::vector<ull> v_bucket_separator;
-        v_bucket_separator.reserve(n_threads);
-        std::vector<ull> v_bucket_separator_tmp;
-        v_bucket_separator_tmp.reserve(n_threads * n_threads);
-        std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
         uint size = n;
         for (int l = 0; l < max_levels; ++l) {
+#ifdef CUDA_ON
+            thrust::device_vector<float> v_device_coords(v_coords);
+            thrust::device_vector<ull> v_device_value_map;
+            uint cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_value_map, size,
+                    v_eps_levels[l], &v_dims_mult[l * max_d]);
+            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
+#endif
+//#ifndef CUDA_ON
+            std::vector<ull> v_value_map;
+            std::vector<std::vector<uint>> v_bucket(n_threads);
+            std::vector<ull> v_bucket_separator;
+            v_bucket_separator.reserve(n_threads);
+            std::vector<ull> v_bucket_separator_tmp;
+            v_bucket_separator_tmp.reserve(n_threads * n_threads);
+            std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
+//#endif
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
         }
     }
 
+    /*
 #ifdef MPI_ON
     void process_nodes_nearest_neighbour(std::unique_ptr<float[]> &v_coords,
             std::unique_ptr<uint[]> &v_node_offset,
@@ -1191,6 +1210,7 @@ namespace nextdbscan {
     }
 
 #endif
+     */
 
 #ifdef MPI_ON
     void coord_partition_and_merge(std::unique_ptr<float[]> &v_coords,
@@ -1322,7 +1342,7 @@ namespace nextdbscan {
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_num_threads(n_threads);
         uint n, max_d, total_samples;
-        std::vector<float> v_coords;
+        s_vec<float> v_coords;
         if (node_index == 0) {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " nodes." << std::endl;
         }
@@ -1352,6 +1372,13 @@ namespace nextdbscan {
                 calc_dims_mult(&v_dims_mult[l * max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
             }
         });
+#ifdef MPI_ON
+        if (n_nodes > 1) {
+            measure_duration("Node Group Points: ", node_index == 0, [&]() -> void {
+
+            });
+        }
+#endif
         /*
 #ifdef MPI_ON
         // Share coordinates
@@ -1463,18 +1490,53 @@ namespace nextdbscan {
             }
             std::cout << "empty tasks: " << empty_task_cnt << " of " << task_cnt << " tasks." << std::endl;
         });
-        /*
+
 #ifdef MPI_ON
         if (n_nodes > 1) {
-            measure_duration("Node Trees NN: ", node_index == 0, [&]() -> void {
-                process_nodes_nearest_neighbour(v_coords, v_node_offsets, vvv_index_map, vvv_cell_begin,
-                        vvv_cell_ns, vv_stacks3, vv_range_table, vv_range_counts, vv_leaf_cell_nn,
-                        vv_point_nn, vv_cell_type, vv_is_core, vvv_min_cell_dim, vvv_max_cell_dim,
-                        n_nodes, max_d, m, e, max_levels, node_index);
+            measure_duration("Node Trees Proximity: ", node_index == 0, [&]() -> void {
+                std::vector<float> v_min_send_buf;
+                std::vector<float> v_max_send_buf;
+                auto v_gather_buf = std::make_unique<int[]>(n_nodes * n_nodes);
+                // TODO reserve
+                auto v_send_offsets = std::make_unique<int[]>(n_nodes);
+                auto v_send_cnts = std::make_unique<int[]>(n_nodes);
+//                auto v_gather_cnts = std::make_unique<int[]>(n_nodes);
+//                auto v_gather_offsets = std::make_unique<int[]>(n_nodes);
+//                for (uint i = 0; i < n_nodes; ++i) {
+//                    v_gather_cnts[i] =
+//                }
+                // While stack not empty code pattern
+//                vv_stacks3[0].push_back()
+                uint gather_index = node_index * n_nodes;
+                int offset = 0;
+                for (int n = 0; n < n_nodes; ++n) {
+                    uint cnt = 0;
+                    int l = max_level-1;
+                    for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
+                        for (uint c = 0; c < vv_cell_ns[l][i]; ++c) {
+                            uint begin = vv_cell_begin[l][c];
+                            uint c_index = vv_index_map[l][begin + c];
+                            // Insert instead of iteration
+                            for (uint j = 0; j < max_d; ++j) {
+                                v_min_send_buf.push_back(vv_min_cell_dim[l-1][c_index * max_d]);
+                                v_max_send_buf.push_back(vv_max_cell_dim[l-1][c_index * max_d]);
+                                ++cnt;
+                            }
+                        }
+                    }
+                    v_send_cnts[n] = cnt;
+                    v_send_offsets[n] = offset;
+                    v_gather_buf[gather_index + n] = cnt;
+                }
+                MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &v_gather_buf[0],
+                        n_nodes, MPI_INT, MPI_COMM_WORLD);
+
+//                MPI_Alltoallv(&v_min_send_buf[0], &v_send_cnts[0], &v_send_offsets[0],
+//                        MPI_FLOAT,nullptr, nullptr,
+//                        nullptr, MPI_FLOAT, MPI_COMM_WORLD);
             });
         }
 #endif
-         */
         uint max_local_clusters;
         measure_duration("Infer Cores and Init Local Clusters: ", node_index == 0, [&]() -> void {
             max_local_clusters = infer_local_types_and_init_clusters(vv_index_map[0], vv_cell_begin[0],
@@ -1513,6 +1575,13 @@ namespace nextdbscan {
                 }
             }
         });
+#ifdef MPI_ON
+        if (n_nodes > 1) {
+            measure_duration("Node Trees Labels: ", node_index == 0, [&]() -> void {
+
+            });
+        }
+#endif
         /*
 #ifdef MPI_ON
         measure_duration("Update Shared Labels: ", node_index == 0, [&]() -> void {

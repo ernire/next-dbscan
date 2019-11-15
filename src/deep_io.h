@@ -25,6 +25,18 @@ SOFTWARE.
 
 #include <istream>
 #include <memory>
+#ifdef CUDA_ON
+#include <thrust/host_vector.h>
+#endif
+
+#ifdef CUDA_ON
+template <class T>
+using s_vec = thrust::host_vector<T>;
+#endif
+#ifndef CUDA_ON
+template <class T>
+using s_vec = std::vector<T>;
+#endif
 
 const int UNDEFINED_VALUE = -1;
 typedef unsigned int uint;
@@ -36,7 +48,7 @@ private:
     int feature_offset = UNDEFINED_VALUE;
     bool is_initialized = false;
 
-    void load_meta_data(std::istream &is, std::vector<float> &v_samples);
+    void load_meta_data(std::istream &is, s_vec<float> &v_samples);
 
 public:
     uint unread_samples;
@@ -58,7 +70,7 @@ public:
 
     ~deep_io() = default;
 
-    int load_next_samples(std::vector<float> &v_samples);
+    int load_next_samples(s_vec<float> &v_samples);
 
     static void get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
             uint number_of_samples, uint number_of_blocks);

@@ -43,7 +43,7 @@ uint deep_io::get_block_start_offset(const uint part_index, const uint number_of
     return offset;
 }
 
-void deep_io::load_meta_data(std::istream &is, std::vector<float> &v_samples) {
+void deep_io::load_meta_data(std::istream &is, s_vec<float> &v_samples) {
     is.read((char *) &sample_no, sizeof(int));
     is.read((char *) &feature_no, sizeof(int));
     unread_samples = get_block_size(block_index, sample_no, block_no);
@@ -52,7 +52,7 @@ void deep_io::load_meta_data(std::istream &is, std::vector<float> &v_samples) {
     v_samples.resize(unread_samples * feature_no);
 }
 
-int deep_io::load_next_samples(std::vector<float> &v_samples) {
+int deep_io::load_next_samples(s_vec<float> &v_samples) {
     std::ifstream ifs(file, std::ios::in | std::ifstream::binary);
     if (!is_initialized) {
         load_meta_data(ifs, v_samples);
