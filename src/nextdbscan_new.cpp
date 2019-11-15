@@ -173,8 +173,8 @@ namespace nextdbscan {
         return true;
     }
 
-    inline void update_to_ac(std::vector<uint> &v_index_maps, std::vector<uint> &v_cell_ns,
-            std::vector<uint> &v_cell_begin, std::vector<uint8_t> &is_core, std::vector<uint8_t> &v_types,
+    inline void update_to_ac(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
+            s_vec<uint> &v_cell_begin, std::vector<uint8_t> &is_core, std::vector<uint8_t> &v_types,
             const uint c) noexcept {
         v_types[c] = AC;
         uint begin = v_cell_begin[c];
@@ -183,8 +183,8 @@ namespace nextdbscan {
         }
     }
 
-    void update_type(std::vector<uint> &v_index_maps, std::vector<uint> &v_cell_ns,
-            std::vector<uint> &v_cell_begin, std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps,
+    void update_type(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
+            s_vec<uint> &v_cell_begin, std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps,
             std::vector<uint8_t> &is_core, std::vector<uint8_t> &v_types, const uint c, const uint m) noexcept {
         if (v_types[c] == AC) {
             return;
@@ -213,7 +213,7 @@ namespace nextdbscan {
         }
     }
 
-    uint fill_range_table(s_vec<float> &v_coords, std::vector<uint> &v_index_map_level,
+    uint fill_range_table(s_vec<float> &v_coords, s_vec<uint> &v_index_map_level,
             const uint size1, const uint size2, std::vector<bool> &v_range_table,
             const uint begin1, const uint begin2, const uint max_d, const float e2) noexcept {
         uint hits = 0;
@@ -233,7 +233,7 @@ namespace nextdbscan {
         return hits;
     }
 
-    void update_points(std::vector<uint> &v_index_map_level, std::vector<uint> &v_cell_nps,
+    void update_points(s_vec<uint> &v_index_map_level, std::vector<uint> &v_cell_nps,
             std::vector<uint> &v_point_nps, uint *v_range_cnt, const uint size, const uint begin,
             const uint c) noexcept {
         uint min_change = INT32_MAX;
@@ -256,7 +256,7 @@ namespace nextdbscan {
         }
     }
 
-    void update_cell_pair_nn(std::vector<uint> &v_index_map_level, const uint size1, const uint size2,
+    void update_cell_pair_nn(s_vec<uint> &v_index_map_level, const uint size1, const uint size2,
             std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps, std::vector<bool> &v_range_table,
             std::vector<uint> &v_range_count,
             const uint c1, const uint begin1, const uint c2, const uint begin2,
@@ -282,9 +282,9 @@ namespace nextdbscan {
     }
 
     void process_pair_proximity(s_vec<float> &v_coords,
-            std::vector<uint> &v_index_maps,
+            s_vec<uint> &v_index_maps,
             std::vector<uint> &v_point_nps,
-            std::vector<uint> &v_cell_ns,
+            s_vec<uint> &v_cell_ns,
             std::vector<bool> &v_range_table,
             std::vector<uint> &v_range_cnt,
             std::vector<uint> &v_cell_nps,
@@ -404,8 +404,8 @@ namespace nextdbscan {
         return total_samples;
     }
 
-    void calculate_level_cell_bounds(float *v_coords, std::vector<uint> &v_cell_begins,
-            std::vector<uint> &v_cell_ns, std::vector<uint> &v_index_maps,
+    void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
+            s_vec<uint> &v_cell_ns, s_vec<uint> &v_index_maps,
             std::vector<std::vector<float>> &vv_min_cell_dims,
             std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept {
         vv_min_cell_dims[l].resize(v_cell_begins.size() * max_d);
@@ -495,8 +495,8 @@ namespace nextdbscan {
 
     void process_pair_labels(s_vec<float> &v_coords,
             std::vector<int> &v_c_labels,
-            std::vector<std::vector<uint>> &vv_cell_ns,
-            std::vector<std::vector<uint>> &vv_index_maps,
+            d_vec<uint> &vv_cell_ns,
+            d_vec<uint> &vv_index_maps,
             std::vector<uint8_t> &v_cell_types,
             std::vector<uint8_t> &v_is_core,
             const uint c1, const uint c2, const uint l, const uint begin1, const uint begin2,
@@ -708,12 +708,12 @@ namespace nextdbscan {
 #endif
 
     void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
-            std::vector<uint> &v_index_map,
+            s_vec<uint> &v_index_map,
             std::vector<ull> &v_value_map,
             std::vector<std::vector<uint>> &v_bucket,
             std::vector<ull> &v_bucket_seperator,
             std::vector<ull> &v_bucket_seperator_tmp,
-            std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
+            t_uint_iterator &v_iterator,
             const uint tid, const uint n_threads, const bool is_parallel_sort) noexcept {
         v_bucket[tid].clear();
         v_iterator[tid].clear();
@@ -855,8 +855,8 @@ namespace nextdbscan {
 
     void determine_index_values(s_vec<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
-            std::vector<std::vector<uint>> &vv_index_map,
-            std::vector<std::vector<uint>> &vv_cell_begin,
+            d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
             std::vector<ull> &v_value_map,
             const ull *dims_mult,
             const int l, const uint size, const uint offset, const uint max_d, const float level_eps,
@@ -876,26 +876,42 @@ namespace nextdbscan {
 
 #ifdef CUDA_ON
     uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
+            thrust::device_vector<thrust::device_vector<uint>> &vv_index_map,
             thrust::device_vector<ull> &v_value_map,
-            const uint size, const float level_eps, const ull *dims_mult) {
+            const uint size, const float level_eps, const ull *dims_mult, const uint l) {
         v_value_map.resize(size);
+//        vv_index_map[l].resize(size);
+//        thrust::sequence(vv_index_map[l].begin(), vv_index_map[l].end());
+//        thrust::transform(vv_index_map[l].begin(), vv_index_map[l].end(), v_value_map.begin(),
+//                thrust::negate<uint>());
 
-
-
+        /*
+                for (uint i = 0; i < size; ++i) {
+            uint p_index = i + offset;
+            int level_mod = 1;
+            while (l - level_mod >= 0) {
+                p_index = vv_index_map[l - level_mod][vv_cell_begin[l - level_mod][p_index]];
+                ++level_mod;
+            }
+            uint coord_index = (p_index + node_offset) * max_d;
+            v_value_map[offset + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
+                    dims_mult, max_d, level_eps);
+        }
+         */
         return 0;
     }
 #endif
 
     uint index_level_and_get_cells(s_vec<float> &v_coords,
             std::unique_ptr<float[]> &v_min_bounds,
-            std::vector<std::vector<uint>> &vv_index_map,
-            std::vector<std::vector<uint>> &vv_cell_begin,
-            std::vector<uint> &v_cell_ns,
+            d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
+            s_vec<uint> &v_cell_ns,
             std::vector<ull> &v_value_map,
             std::vector<std::vector<uint>> &v_bucket,
             std::vector<ull> &v_bucket_separator,
             std::vector<ull> &v_bucket_separator_tmp,
-            std::vector<std::vector<std::vector<uint>::iterator>> &v_iterator,
+            t_uint_iterator &v_iterator,
             const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
             const ull *dims_mult, const uint n_threads) noexcept {
         vv_index_map[l].resize(size);
@@ -993,9 +1009,9 @@ namespace nextdbscan {
     }
 
     bool process_pair_stack(s_vec<float> &v_coords,
-            std::vector<std::vector<uint>> &vv_index_map,
-            std::vector<std::vector<uint>> &vv_cell_begin,
-            std::vector<std::vector<uint>> &vv_cell_ns,
+            d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
+            d_vec<uint> &vv_cell_ns,
             std::vector<std::vector<float>> &vv_min_cell_dim,
             std::vector<std::vector<float>> &vv_max_cell_dim,
             std::vector<uint> &v_leaf_cell_np,
@@ -1048,9 +1064,9 @@ namespace nextdbscan {
         return ret;
     }
 
-    uint infer_local_types_and_init_clusters(std::vector<uint> &v_index_map,
-            std::vector<uint> &v_cell_begin,
-            std::vector<uint> &v_cell_ns,
+    uint infer_local_types_and_init_clusters(s_vec<uint> &v_index_map,
+            s_vec<uint> &v_cell_begin,
+            s_vec<uint> &v_cell_ns,
             std::vector<uint> &v_leaf_cell_np,
             std::vector<uint> &v_point_np,
             std::vector<uint8_t> &v_cell_types,
@@ -1084,7 +1100,7 @@ namespace nextdbscan {
         return max_clusters;
     }
 
-    void init_stacks(std::vector<std::vector<uint>> &vv_cell_ns,
+    void init_stacks(d_vec<uint> &vv_cell_ns,
             std::vector<uint> &v_leaf_cell_np,
             std::vector<std::vector<cell_meta_3>> &vv_stacks3,
             std::vector<std::vector<bool>> &vv_range_table,
@@ -1110,9 +1126,9 @@ namespace nextdbscan {
             std::unique_ptr<float[]> &v_eps_levels,
             std::unique_ptr<ull[]> &v_dims_mult,
             std::unique_ptr<float[]> &v_min_bounds,
-            std::vector<std::vector<uint>> &vv_index_map,
-            std::vector<std::vector<uint>> &vv_cell_begin,
-            std::vector<std::vector<uint>> &vv_cell_ns,
+            d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
+            d_vec<uint> &vv_cell_ns,
             std::vector<std::vector<float>> &vv_min_cell_dim,
             std::vector<std::vector<float>> &vv_max_cell_dim,
             const uint max_d, const uint n_threads,
@@ -1122,8 +1138,10 @@ namespace nextdbscan {
 #ifdef CUDA_ON
             thrust::device_vector<float> v_device_coords(v_coords);
             thrust::device_vector<ull> v_device_value_map;
-            uint cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_value_map, size,
-                    v_eps_levels[l], &v_dims_mult[l * max_d]);
+            thrust::device_vector<thrust::device_vector<uint>> vv_device_index_map;
+            uint cuda_size = cu_index_level_and_get_cells(v_device_coords, vv_device_index_map,
+                    v_device_value_map, size,
+                    v_eps_levels[l], &v_dims_mult[l * max_d], l);
             std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
 #endif
 //#ifndef CUDA_ON
@@ -1133,7 +1151,7 @@ namespace nextdbscan {
             v_bucket_separator.reserve(n_threads);
             std::vector<ull> v_bucket_separator_tmp;
             v_bucket_separator_tmp.reserve(n_threads * n_threads);
-            std::vector<std::vector<std::vector<uint>::iterator>> v_iterator(n_threads);
+            t_uint_iterator v_iterator(n_threads);
             size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
@@ -1321,7 +1339,7 @@ namespace nextdbscan {
     }
 #endif
 
-    void populate_tasks(std::vector<std::vector<uint>> &vv_cell_begin,
+    void populate_tasks(d_vec<uint> &vv_cell_begin,
             std::vector<cell_meta> &v_tasks,
             const uint max_level) noexcept {
 
@@ -1412,9 +1430,12 @@ namespace nextdbscan {
         }
 #endif
          */
-        std::vector<std::vector<uint>> vv_index_map(max_level);
-        std::vector<std::vector<uint>> vv_cell_begin(max_level);
-        std::vector<std::vector<uint>> vv_cell_ns(max_level);
+//        std::vector<std::vector<uint>> vv_index_map(max_level);
+//        std::vector<std::vector<uint>> vv_cell_begin(max_level);
+//        std::vector<std::vector<uint>> vv_cell_ns(max_level);
+        d_vec<uint> vv_index_map(max_level);
+        d_vec<uint> vv_cell_begin(max_level);
+        d_vec<uint> vv_cell_ns(max_level);
         std::vector<std::vector<float>> vv_min_cell_dim(max_level);
         std::vector<std::vector<float>> vv_max_cell_dim(max_level);
         measure_duration("Index and Bounds: ", node_index == 0, [&]() -> void {
