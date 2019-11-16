@@ -3,7 +3,7 @@ MPI=mpicxx
 GCC=g++
 NVCC=nvcc
 CCFLAGS=-fopenmp -std=c++14 -fno-exceptions
-CUDAFLAGS=-Xcompiler -fopenmp -std=c++14
+CUDAFLAGS=-Xcompiler -fopenmp -std=c++14 --expt-extended-lambda
 CCMPI_FLAG=-DMPI_ON=1
 CCUDA_FLAG=-DCUDA_ON=1
 CCDEBUG=-O1 -pg -g
