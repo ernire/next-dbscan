@@ -82,24 +82,52 @@ namespace nextdbscan {
     //    __global__voidsaxpy(float alpha, float* x, float* y, size_t n){auto i =blockDim.x *blockIdx.x +threadIdx.x;if(i < n){y[i] = a * x[i] + y[i];}}
 #ifdef CUDA_ON
 
-    __global__ void index_kernel(const float* v_coord, ull* v_map, const float* v_min, const ull* v_mult,
-            const uint size, const uint max_d, const float eps) {
-        for (uint i = 0; i < size; ++i) {
-            uint coord_index = i * max_d;
-            ull cell_index = 0;
+    __global__ void index_kernel(const float* v_coord, uint* v_index, ull* v_map, const float* v_min,
+            const ull* v_mult, const uint size, const uint max_d, const float eps) {
+
+        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        uint coord_index;
+        ull cell_index;
+
+        while (globalIdx < size) {
+            coord_index = v_index[globalIdx] * max_d;
+            cell_index = 0;
             #pragma unroll
             for (uint d = 0; d < max_d; d++) {
                 cell_index += (ull)((v_coord[coord_index+d] - v_min[d]) / eps) * v_mult[d];
             }
-            v_map[i] = cell_index;
+            v_map[globalIdx] = cell_index;
+            globalIdx += blockDim.x * gridDim.x;
+            __syncthreads();
         }
     }
 
-    __global__ void mark_unique_kernel(const ull* v_input, uint* v_output, const uint size) {
-        for (uint i = 1; i < size; ++i) {
-            if (v_input[i] != v_input[i-1]) {
-                v_output[i] = 1;
+    __global__ void count_unique_groups(const ull* v_input, uint* v_output, const uint size) {
+        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        uint8_t is_processing;
+        int cnt, index;
+        ull val;
+
+        while (globalIdx < size) {
+            is_processing = 0;
+            if (globalIdx == 0) {
+                is_processing = 1;
+            } else {
+                if (v_input[globalIdx] != v_input[globalIdx-1]) {
+                    is_processing = 1;
+                }
             }
+            if (is_processing > 0) {
+                cnt = 0;
+                index = globalIdx;
+                val = v_input[index];
+                while(index < size && val == v_input[index]) {
+                    ++cnt;
+                    ++index;
+                }
+                v_output[globalIdx] = cnt;
+            }
+            globalIdx += blockDim.x * gridDim.x;
         }
     }
 #endif
@@ -910,21 +938,26 @@ namespace nextdbscan {
 
 #ifdef CUDA_ON
     uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
-            d_vec<uint> &vv_index_map,
+            thrust::device_vector<uint> &v_device_index_map,
+            thrust::device_vector<uint> &v_device_cell_ns,
+            thrust::device_vector<uint> &v_device_cell_begin,
             thrust::device_vector<float> &v_min_bounds,
-            thrust::device_vector<ull> v_device_dims_mult,
-            thrust::device_vector<float> v_level_eps,
+            thrust::device_vector<ull> &v_device_dims_mult,
+            thrust::device_vector<float> &v_level_eps,
             thrust::device_vector<ull> &v_value_map,
             thrust::device_vector<ull> &v_dims_mult,
             const uint size, const uint l, const uint max_d) {
         v_value_map.resize(size);
-        vv_index_map[l].resize(size);
+        v_device_index_map.resize(size);
 
-        if (l == 0) {
-            thrust::device_vector<uint> v_device_index_map(size);
-            thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
-            index_kernel<<<1,1>>>(
+        if (l < 2) {
+            if (l == 0)
+                thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
+            else
+                thrust::copy(v_device_cell_begin.begin(), v_device_cell_begin.end(), v_device_index_map.begin());
+            index_kernel<<<1 ,1024>>>(
                 thrust::raw_pointer_cast(&v_coords[0]),
+                thrust::raw_pointer_cast(&v_device_index_map[0]),
                 thrust::raw_pointer_cast(&v_value_map[0]),
                 thrust::raw_pointer_cast(&v_min_bounds[0]),
                 thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
@@ -933,21 +966,26 @@ namespace nextdbscan {
                 v_level_eps[l]
             );
             thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
-            thrust::device_vector<uint> v_unique_marks(size, 0);
-            v_unique_marks[0] = 1;
-            mark_unique_kernel<<<1,1>>>(
+            // TODO don't recreate
+            thrust::device_vector<uint> v_unique_cnt(size, 0);
+                                    // TODO don't recreate
+            thrust::device_vector<uint> v_indexes(size);
+            thrust::sequence(v_indexes.begin(), v_indexes.end());
+            count_unique_groups<<<1,1024>>>(
                     thrust::raw_pointer_cast(&v_value_map[0]),
-                    thrust::raw_pointer_cast(&v_unique_marks[0]),
+                    thrust::raw_pointer_cast(&v_unique_cnt[0]),
                     size);
-            int result = thrust::count_if(v_unique_marks.begin(), v_unique_marks.end(),
-                [] __device__ (auto val) { return val == 1; });
-            std::cout << "result: " << result << std::endl;
+            int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.end(),
+                [] __device__ (auto val) { return val > 0; });
+            v_device_cell_ns.resize(result);
+            v_device_cell_begin.resize(v_device_cell_ns.size());
 
-            thrust::host_vector<ull> v_map_test(v_value_map);
-            std::cout << "map: " << v_map_test[0] << " : " << v_map_test[1] << " : " << v_map_test[2] << std::endl;
-            vv_index_map[l] = v_device_index_map;
-            std::cout << "index: " << v_device_index_map[0] << " : " << v_device_index_map[1] << " : "
-                << v_device_index_map[2] <<std::endl;
+            thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
+                    [] __device__ (auto val) { return val > 0; });
+            auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
+            thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
+                    [=] __device__ (auto val) { return ptr[val] > 0; });
+
             return result;
         }
 
@@ -1213,18 +1251,33 @@ namespace nextdbscan {
         uint size = n;
 
 #ifdef CUDA_ON
-        thrust::device_vector<float> v_device_coords(v_coords);
-        thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
-        thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
-        thrust::device_vector<ull> v_device_dims_mult(v_dims_mult);
-        thrust::device_vector<ull> v_device_value_map;
-        for (int l = 0; l < max_levels; ++l) {
-            uint cuda_size = cu_index_level_and_get_cells(v_device_coords, vv_index_map,
-                    v_device_min_bounds, v_device_dims_mult, v_device_eps_levels,
-                    v_device_value_map, v_device_dims_mult, size, l, max_d);
-            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
-        }
+        measure_duration("CUDA Index: ", true, [&]() -> void {
+            thrust::device_vector<float> v_device_coords(v_coords);
+            thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
+            thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
+            thrust::device_vector<ull> v_device_dims_mult(v_dims_mult);
+            thrust::device_vector<ull> v_device_value_map;
+            thrust::device_vector<uint> v_device_index_map;
+            thrust::device_vector<uint> v_device_cell_ns;
+            thrust::device_vector<uint> v_device_cell_begin;
+            uint cuda_size = size;
+            for (int l = 0; l < max_levels; ++l) {
+                cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
+                        v_device_cell_ns, v_device_cell_begin,
+                        v_device_min_bounds, v_device_dims_mult, v_device_eps_levels,
+                        v_device_value_map, v_device_dims_mult, cuda_size, l, max_d);
+                std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
+                vv_index_map[l] = v_device_index_map;
+                vv_cell_ns[l] = v_device_cell_ns;
+                vv_cell_begin[l] = v_device_cell_begin;
+//                if (l == 0)
+//                    std::cout << "cell begin size: " << vv_cell_begin[l].size() << ": " << v_device_cell_begin.size() << std::endl;
+                if (l == 0)
+                    print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
+            }
+        });
 #endif
+
 //#ifndef CUDA_ON
         for (int l = 0; l < max_levels; ++l) {
             std::vector<ull> v_value_map;
@@ -1239,6 +1292,8 @@ namespace nextdbscan {
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
             std::cout << "Level: " << l << " CPU size: " << size << std::endl;
+            if (l == 0)
+                print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
 //#endif
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
