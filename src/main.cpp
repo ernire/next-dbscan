@@ -34,13 +34,30 @@ SOFTWARE.
 #endif
 
 void usage() {
-    std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl
-              << "    CSV Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
-              << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
-              << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
-              << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl
-              << "    -o output    : Output file containing the cluster ids in the same order as the input" << std::endl
-              << "    -h help      : Show this help message" << std::endl;
+    std::cout << "NextDBSCAN compiled for OpenMP";
+#ifdef MPI_ON
+    std::cout << ", MPI";
+#endif
+#ifdef HDF5_ON
+    std::cout << ", HDF5";
+#endif
+#ifdef CUDA_ON
+    std::cout << ", CUDA (V100)";
+#endif
+    std::cout << std::endl << std::endl;
+    std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl;
+    std::cout << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl;
+    std::cout << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl;
+    std::cout << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl;
+    std::cout << "    -o output    : Output file containing the cluster ids in the same order as the input" << std::endl;
+    std::cout << "    -h help      : Show this help message" << std::endl << std::endl;
+    std::cout << "Supported Input Types:" << std::endl;
+
+    std::cout << ".csv: Text file with one sample/point per line and features/dimensions separated by a space delimiter, i.e. ' '" << std::endl;
+    std::cout << ".bin: Custom binary format for faster file reads. Use cvs2bin executable to transform csv into bin files." << std::endl;
+#ifdef HDF5_ON
+    std::cout << ".hdf5: The best I/O performance when using multiple nodes." << std::endl;
+#endif
 }
 
 int main(int argc, char** argv) {
@@ -66,17 +83,6 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
-//            case 'd': {
-//                #define MPI_ON
-//                ssize_t d = std::stoll(optarg);
-//                if (d <= 0L) {
-//                    std::cerr << "max dim must be a positive integer number, but was " << optarg << std::endl;
-//                    ++errors;
-//                } else {
-//                    max_d = d;
-//                }
-//                break;
-//            }
             case 'e': {
                 float epsilon = std::stof(optarg);
                 if (epsilon <= 0.0f) {
@@ -118,7 +124,7 @@ int main(int argc, char** argv) {
     }
 
     if (errors || m == -1 || e == -1) {
-        std::cout << "Input Error: Please specify the m, e" << std::endl;
+        std::cout << "Input Error: Please specify the m and e parameters" << std::endl << std::endl;
         usage();
         std::exit(EXIT_FAILURE);
     }

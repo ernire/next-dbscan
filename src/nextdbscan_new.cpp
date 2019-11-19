@@ -443,7 +443,8 @@ namespace nextdbscan {
         is.close();
     }
 
-    uint read_input_hdf5(const std::string &in_file, s_vec<float> &v_points, uint &max_d) noexcept {
+    uint read_input_hdf5(const std::string &in_file, s_vec<float> &v_points, uint &max_d,
+            const uint n_nodes, const uint node_index) noexcept {
         uint n = 0;
 #ifdef HDF5_ON
         hid_t file = H5Fopen(in_file.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
@@ -460,9 +461,13 @@ namespace nextdbscan {
 //        hsize_t chunkSize =(this->m_totalSize / this->m_mpiSize) + 1;
 //        hsize_t offset[2] = {this->m_mpiRank * chunkSize, 0};
 //        count[0] = std::min(chunkSize, this->m_totalSize - offset[0]);
-        hsize_t offset[2] = {0, 0};
+//        uint deep_io::get_block_size(const uint block_index, const uint number_of_samples, const uint number_of_blocks) {
 
-        v_points.resize(n * max_d);
+        int block_size =  deep_io::get_block_size(node_index, n, n_nodes);
+        int block_offset =  deep_io::get_block_start_offset(node_index, n, n_nodes);
+        hsize_t offset[2] = {block_offset, 0};
+        count[0] = block_size;
+        v_points.resize(block_size * max_d);
 
         hid_t memSpace = H5Screate_simple(2, count, NULL);
         H5Sselect_hyperslab(fileSpace,H5S_SELECT_SET,offset, NULL, count, NULL);
@@ -478,8 +483,8 @@ namespace nextdbscan {
         return in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0;
     }
 
-    uint load_input(const std::string &in_file, s_vec<float> &v_points, uint &n, uint &max_d,
-            const uint blocks_no, const uint block_index) noexcept {
+    uint read_input(const std::string &in_file, s_vec<float> &v_points, uint &n, uint &max_d,
+            const uint n_nodes, const uint node_index) noexcept {
         std::string s_cmp = ".bin";
         std::string s_cmp_hdf5_1 = ".h5";
         std::string s_cmp_hdf5_2 = ".hdf5";
@@ -487,7 +492,7 @@ namespace nextdbscan {
         if (is_equal(in_file, s_cmp)) {
             char c[in_file.size() + 1];
             strcpy(c, in_file.c_str());
-            auto *data = new deep_io(c, blocks_no, block_index);
+            auto *data = new deep_io(c, n_nodes, node_index);
             int read_bytes = data->load_next_samples(v_points);
             if (read_bytes == -1) {
                 std::cerr << "Critical Error: Failed to read input" << std::endl;
@@ -497,7 +502,7 @@ namespace nextdbscan {
             max_d = data->feature_no;
             return data->sample_no;
         } else if (is_equal(in_file, s_cmp_hdf5_1) || is_equal(in_file, s_cmp_hdf5_2)) {
-            n = read_input_hdf5(in_file, v_points, max_d);
+            n = read_input_hdf5(in_file, v_points, max_d, n_nodes, node_index);
             total_samples = n;
         } else {
             count_lines_and_dimensions(in_file, n, max_d);
@@ -1574,7 +1579,7 @@ namespace nextdbscan {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " nodes." << std::endl;
         }
         measure_duration("Input Read: ", node_index == 0, [&]() -> void {
-            total_samples = load_input(in_file, v_coords, n, max_d, n_nodes, node_index);
+            total_samples = read_input(in_file, v_coords, n, max_d, n_nodes, node_index);
         });
         auto time_data_read = std::chrono::high_resolution_clock::now();
         if (node_index == 0) {
@@ -1722,6 +1727,7 @@ namespace nextdbscan {
 
 #ifdef MPI_ON
         if (n_nodes > 1) {
+            /*
             measure_duration("Node Trees Proximity: ", node_index == 0, [&]() -> void {
                 std::vector<float> v_min_send_buf;
                 std::vector<float> v_max_send_buf;
@@ -1764,6 +1770,7 @@ namespace nextdbscan {
 //                        MPI_FLOAT,nullptr, nullptr,
 //                        nullptr, MPI_FLOAT, MPI_COMM_WORLD);
             });
+             */
         }
 #endif
         uint max_local_clusters;
