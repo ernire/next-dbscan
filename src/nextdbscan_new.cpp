@@ -34,11 +34,15 @@ SOFTWARE.
 #include <functional>
 //#define MPI_ON
 //#define CUDA_ON
+//#define HDF5_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
 #ifdef CUDA_ON
 #include <thrust/device_vector.h>
+#endif
+#ifdef HDF5_ON
+#include <hdf5.h>
 #endif
 #include "nextdbscan.h"
 #include "deep_io.h"
@@ -376,24 +380,6 @@ namespace nextdbscan {
         }
     }
 
-    void read_input_txt(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
-        std::ifstream is(in_file);
-        std::string line, buf;
-        std::stringstream ss;
-        int index = 0;
-        while (std::getline(is, line)) {
-            ss.str(std::string());
-            ss.clear();
-            ss << line;
-            for (int j = 0; j < max_d; j++) {
-                ss >> buf;
-                v_points[index++] = atof(buf.c_str());
-            }
-        }
-        is.close();
-    }
-
-
     result collect_results(std::vector<uint8_t> &v_is_core,std::vector<int> &v_cluster_label, uint n) noexcept {
         result res{0, 0, 0, n, new int[n]};
 
@@ -440,11 +426,65 @@ namespace nextdbscan {
         is.close();
     }
 
+    void read_input_txt(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
+        std::ifstream is(in_file);
+        std::string line, buf;
+        std::stringstream ss;
+        int index = 0;
+        while (std::getline(is, line)) {
+            ss.str(std::string());
+            ss.clear();
+            ss << line;
+            for (int j = 0; j < max_d; j++) {
+                ss >> buf;
+                v_points[index++] = atof(buf.c_str());
+            }
+        }
+        is.close();
+    }
+
+    uint read_input_hdf5(const std::string &in_file, s_vec<float> &v_points, uint &max_d) noexcept {
+        uint n = 0;
+#ifdef HDF5_ON
+        hid_t file = H5Fopen(in_file.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+        hid_t dset = H5Dopen1(file, "DBSCAN");
+        hid_t fileSpace= H5Dget_space(dset);
+
+        // Read dataset size and calculate chunk size
+        hsize_t count[2];
+        H5Sget_simple_extent_dims(fileSpace, count,NULL);
+        n = count[0];
+        max_d = count[1];
+        std::cout << "HDF5 total size: " << n << std::endl;
+
+//        hsize_t chunkSize =(this->m_totalSize / this->m_mpiSize) + 1;
+//        hsize_t offset[2] = {this->m_mpiRank * chunkSize, 0};
+//        count[0] = std::min(chunkSize, this->m_totalSize - offset[0]);
+        hsize_t offset[2] = {0, 0};
+
+        v_points.resize(n * max_d);
+
+        hid_t memSpace = H5Screate_simple(2, count, NULL);
+        H5Sselect_hyperslab(fileSpace,H5S_SELECT_SET,offset, NULL, count, NULL);
+        H5Dread(dset, H5T_IEEE_F32LE, memSpace, fileSpace,H5P_DEFAULT, &v_points[0]);
+
+        H5Dclose(dset);
+        H5Fclose(file);
+#endif
+        return n;
+    }
+
+    inline bool is_equal(const std::string &in_file, const std::string &s_cmp) noexcept {
+        return in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0;
+    }
+
     uint load_input(const std::string &in_file, s_vec<float> &v_points, uint &n, uint &max_d,
             const uint blocks_no, const uint block_index) noexcept {
         std::string s_cmp = ".bin";
+        std::string s_cmp_hdf5_1 = ".h5";
+        std::string s_cmp_hdf5_2 = ".hdf5";
         int total_samples = 0;
-        if (in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0) {
+        if (is_equal(in_file, s_cmp)) {
             char c[in_file.size() + 1];
             strcpy(c, in_file.c_str());
             auto *data = new deep_io(c, blocks_no, block_index);
@@ -456,6 +496,9 @@ namespace nextdbscan {
             n = data->sample_read_no;
             max_d = data->feature_no;
             return data->sample_no;
+        } else if (is_equal(in_file, s_cmp_hdf5_1) || is_equal(in_file, s_cmp_hdf5_2)) {
+            n = read_input_hdf5(in_file, v_points, max_d);
+            total_samples = n;
         } else {
             count_lines_and_dimensions(in_file, n, max_d);
             v_points.resize(n * max_d);
@@ -945,16 +988,21 @@ namespace nextdbscan {
             thrust::device_vector<ull> &v_device_dims_mult,
             thrust::device_vector<float> &v_level_eps,
             thrust::device_vector<ull> &v_value_map,
+            thrust::device_vector<uint> &v_coord_indexes,
             thrust::device_vector<ull> &v_dims_mult,
             const uint size, const uint l, const uint max_d) {
         v_value_map.resize(size);
         v_device_index_map.resize(size);
 
-        if (l < 2) {
-            if (l == 0)
+//        if (l < 3) {
+            if (l == 0) {
+                v_coord_indexes.resize(size);
                 thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
-            else
-                thrust::copy(v_device_cell_begin.begin(), v_device_cell_begin.end(), v_device_index_map.begin());
+//                thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
+            } else {
+                thrust::copy(thrust::device, v_coord_indexes.begin(), v_coord_indexes.end(), v_device_index_map.begin());
+            }
+
             index_kernel<<<1 ,1024>>>(
                 thrust::raw_pointer_cast(&v_coords[0]),
                 thrust::raw_pointer_cast(&v_device_index_map[0]),
@@ -968,7 +1016,7 @@ namespace nextdbscan {
             thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
             // TODO don't recreate
             thrust::device_vector<uint> v_unique_cnt(size, 0);
-                                    // TODO don't recreate
+            // TODO don't recreate
             thrust::device_vector<uint> v_indexes(size);
             thrust::sequence(v_indexes.begin(), v_indexes.end());
             count_unique_groups<<<1,1024>>>(
@@ -979,15 +1027,19 @@ namespace nextdbscan {
                 [] __device__ (auto val) { return val > 0; });
             v_device_cell_ns.resize(result);
             v_device_cell_begin.resize(v_device_cell_ns.size());
-
+            v_coord_indexes.resize(v_device_cell_ns.size());
+            // TODO stencil?
             thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
                     [] __device__ (auto val) { return val > 0; });
             auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
             thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
                     [=] __device__ (auto val) { return ptr[val] > 0; });
+            thrust::copy_if(thrust::device, v_device_index_map.begin(), v_device_index_map.end(), v_indexes.begin(),
+                    v_coord_indexes.begin(),
+                    [=] __device__ (auto val) { return ptr[val] > 0; });
 
             return result;
-        }
+//        }
 
         /*
          *
@@ -1013,7 +1065,7 @@ namespace nextdbscan {
                     dims_mult, max_d, level_eps);
         }
          */
-        return 0;
+//        return 0;
     }
 #endif
 
@@ -1260,26 +1312,36 @@ namespace nextdbscan {
             thrust::device_vector<uint> v_device_index_map;
             thrust::device_vector<uint> v_device_cell_ns;
             thrust::device_vector<uint> v_device_cell_begin;
+            thrust::device_vector<uint> v_coord_indexes;
             uint cuda_size = size;
+            thrust::host_vector<uint> v_test;
             for (int l = 0; l < max_levels; ++l) {
                 cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
                         v_device_cell_ns, v_device_cell_begin,
                         v_device_min_bounds, v_device_dims_mult, v_device_eps_levels,
-                        v_device_value_map, v_device_dims_mult, cuda_size, l, max_d);
+                        v_device_value_map, v_coord_indexes, v_device_dims_mult, cuda_size, l, max_d);
                 std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
                 vv_index_map[l] = v_device_index_map;
                 vv_cell_ns[l] = v_device_cell_ns;
                 vv_cell_begin[l] = v_device_cell_begin;
 //                if (l == 0)
 //                    std::cout << "cell begin size: " << vv_cell_begin[l].size() << ": " << v_device_cell_begin.size() << std::endl;
-                if (l == 0)
-                    print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
+                if (l < 4) {
+//                    print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
+                    v_test = v_coord_indexes;
+//                    print_array("10 coord indexes: ", &v_test[0], 10);
+                    std::cout << "10 cell index: ";
+                    for (uint i = 0; i < 10 ; ++i) {
+                        std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
+                    }
+                    std::cout << std::endl;
+                }
             }
         });
 #endif
 
-//#ifndef CUDA_ON
         for (int l = 0; l < max_levels; ++l) {
+//#ifndef CUDA_ON
             std::vector<ull> v_value_map;
             std::vector<std::vector<uint>> v_bucket(n_threads);
             std::vector<ull> v_bucket_separator;
@@ -1292,8 +1354,15 @@ namespace nextdbscan {
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
             std::cout << "Level: " << l << " CPU size: " << size << std::endl;
-            if (l == 0)
-                print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
+            if (l < 4) {
+//                print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
+                std::cout << "10 cell index: ";
+                for (uint i = 0; i < 10 ; ++i) {
+                    std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
+                }
+                std::cout << std::endl;
+//                print_array("10 cell index: ", &vv_index_map[l][0], 10);
+            }
 //#endif
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
@@ -1374,6 +1443,7 @@ namespace nextdbscan {
             const ull* dims_mult, const float eps_level,
             const uint node_size, const uint node_offset, const uint max_d, const uint n_threads,
             const uint node_index, const uint n_nodes, const uint total_samples) {
+        /*
         int sizes[n_nodes];
         int offsets[n_nodes];
         std::vector<uint> v_index_map(node_size);
@@ -1431,7 +1501,7 @@ namespace nextdbscan {
 //        if (node_index == 0) {
 //            print_array("post block offsets: ", &block_offsets[0], n_nodes * n_nodes);
 //        }
-        std::vector<float> v_coord_copy(total_samples * max_d/*, INT32_MAX*/);
+        std::vector<float> v_coord_copy(total_samples * max_d);
 
         index = node_index * n_nodes;
         for (uint n = 0; n < n_nodes; ++n) {
@@ -1474,6 +1544,7 @@ namespace nextdbscan {
 //            assert(elem != INT32_MAX);
 //        }
         std::copy(v_coord_copy.begin(), v_coord_copy.end(), &v_coords[0]);
+        */
     }
 #endif
 
