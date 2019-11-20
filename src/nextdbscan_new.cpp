@@ -408,25 +408,25 @@ namespace nextdbscan {
         return res;
     }
 
-    void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
-        std::ifstream is(in_file);
-        std::string line, buf;
-        int cnt = 0;
-        dimensions = 0;
-        while (std::getline(is, line)) {
-            if (dimensions == 0) {
-                std::istringstream iss(line);
-                std::vector<std::string> results(std::istream_iterator<std::string>{iss},
-                        std::istream_iterator<std::string>());
-                dimensions = results.size();
-            }
-            ++cnt;
-        }
-        lines = cnt;
-        is.close();
-    }
+//    void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
+//        std::ifstream is(in_file);
+//        std::string line, buf;
+//        int cnt = 0;
+//        dimensions = 0;
+//        while (std::getline(is, line)) {
+//            if (dimensions == 0) {
+//                std::istringstream iss(line);
+//                std::vector<std::string> results(std::istream_iterator<std::string>{iss},
+//                        std::istream_iterator<std::string>());
+//                dimensions = results.size();
+//            }
+//            ++cnt;
+//        }
+//        lines = cnt;
+//        is.close();
+//    }
 
-    void read_input_txt(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
+    void read_input_csv(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
         std::stringstream ss;
@@ -463,8 +463,8 @@ namespace nextdbscan {
 //        count[0] = std::min(chunkSize, this->m_totalSize - offset[0]);
 //        uint deep_io::get_block_size(const uint block_index, const uint number_of_samples, const uint number_of_blocks) {
 
-        int block_size =  deep_io::get_block_size(node_index, n, n_nodes);
-        int block_offset =  deep_io::get_block_start_offset(node_index, n, n_nodes);
+        hsize_t block_size =  deep_io::get_block_size(node_index, n, n_nodes);
+        hsize_t block_offset =  deep_io::get_block_start_offset(node_index, n, n_nodes);
         hsize_t offset[2] = {block_offset, 0};
         count[0] = block_size;
         v_points.resize(block_size * max_d);
@@ -475,6 +475,11 @@ namespace nextdbscan {
 
         H5Dclose(dset);
         H5Fclose(file);
+#endif
+#ifndef HDF5_ON
+        std::cerr << "Error: HDF5 is not supported by this executable. "
+                     "Use the cu-hdf5 flag when building from source to support HDF5." << std::endl;
+        exit(-1);
 #endif
         return n;
     }
@@ -505,10 +510,10 @@ namespace nextdbscan {
             n = read_input_hdf5(in_file, v_points, max_d, n_nodes, node_index);
             total_samples = n;
         } else {
-            count_lines_and_dimensions(in_file, n, max_d);
+            deep_io::count_lines_and_dimensions(in_file, n, max_d);
             v_points.resize(n * max_d);
-            std::cout << "WARNING: USING VERY SLOW NON-PARALLEL I/O." << std::endl;
-            read_input_txt(in_file, v_points, max_d);
+            std::cout << "WARNING: USING SLOW CSV I/O." << std::endl;
+            read_input_csv(in_file, v_points, max_d);
             total_samples = n;
         }
         return total_samples;
@@ -987,6 +992,7 @@ namespace nextdbscan {
 #ifdef CUDA_ON
     uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
             thrust::device_vector<uint> &v_device_index_map,
+            thrust::device_vector<uint> &v_device_relative_index_map,
             thrust::device_vector<uint> &v_device_cell_ns,
             thrust::device_vector<uint> &v_device_cell_begin,
             thrust::device_vector<float> &v_min_bounds,
@@ -998,79 +1004,103 @@ namespace nextdbscan {
             const uint size, const uint l, const uint max_d) {
         v_value_map.resize(size);
         v_device_index_map.resize(size);
+        thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
 
-//        if (l < 3) {
-            if (l == 0) {
-                v_coord_indexes.resize(size);
-                thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
-//                thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
-            } else {
-                thrust::copy(thrust::device, v_coord_indexes.begin(), v_coord_indexes.end(), v_device_index_map.begin());
-            }
-
-            index_kernel<<<1 ,1024>>>(
-                thrust::raw_pointer_cast(&v_coords[0]),
-                thrust::raw_pointer_cast(&v_device_index_map[0]),
-                thrust::raw_pointer_cast(&v_value_map[0]),
-                thrust::raw_pointer_cast(&v_min_bounds[0]),
-                thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
-                size,
-                max_d,
-                v_level_eps[l]
-            );
-            thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
-            // TODO don't recreate
-            thrust::device_vector<uint> v_unique_cnt(size, 0);
-            // TODO don't recreate
-            thrust::device_vector<uint> v_indexes(size);
-            thrust::sequence(v_indexes.begin(), v_indexes.end());
-            count_unique_groups<<<1,1024>>>(
-                    thrust::raw_pointer_cast(&v_value_map[0]),
-                    thrust::raw_pointer_cast(&v_unique_cnt[0]),
-                    size);
-            int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.end(),
-                [] __device__ (auto val) { return val > 0; });
-            v_device_cell_ns.resize(result);
-            v_device_cell_begin.resize(v_device_cell_ns.size());
-            v_coord_indexes.resize(v_device_cell_ns.size());
-            // TODO stencil?
-            thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
-                    [] __device__ (auto val) { return val > 0; });
-            auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
-            thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
-                    [=] __device__ (auto val) { return ptr[val] > 0; });
-            thrust::copy_if(thrust::device, v_device_index_map.begin(), v_device_index_map.end(), v_indexes.begin(),
-                    v_coord_indexes.begin(),
-                    [=] __device__ (auto val) { return ptr[val] > 0; });
-
-            return result;
+        if (l == 0) {
+            v_coord_indexes.resize(size);
+            thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
+        }
+//        else {
+//            thrust::copy(thrust::device, v_coord_indexes.begin(), v_coord_indexes.end(), v_device_index_map.begin());
 //        }
 
-        /*
-         *
-         *         ull cell_index = 0;
-        for (uint d = 0; d < max_d; d++) {
-            cell_index += (ull)((dv[d] - mv[d]) / size) * dm[d];
-        }
-        return cell_index;
-         *
-         *
-         * [=] __host__ __device__ (float x, float y) { return a * x + y; }      // --- Lambda expression
-                     );
-         *
-                for (uint i = 0; i < size; ++i) {
-            uint p_index = i + offset;
-            int level_mod = 1;
-            while (l - level_mod >= 0) {
-                p_index = vv_index_map[l - level_mod][vv_cell_begin[l - level_mod][p_index]];
-                ++level_mod;
-            }
-            uint coord_index = (p_index + node_offset) * max_d;
-            v_value_map[offset + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
-                    dims_mult, max_d, level_eps);
-        }
-         */
-//        return 0;
+        index_kernel<<<1 ,1024>>>(
+            thrust::raw_pointer_cast(&v_coords[0]),
+            thrust::raw_pointer_cast(&v_coord_indexes[0]),
+            thrust::raw_pointer_cast(&v_value_map[0]),
+            thrust::raw_pointer_cast(&v_min_bounds[0]),
+            thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
+            size,
+            max_d,
+            v_level_eps[l]
+        );
+        thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
+        thrust::device_vector<uint> v_tmp(size);
+        auto ptr_indexes = thrust::raw_pointer_cast(&v_coord_indexes[0]);
+        thrust::transform(thrust::device,
+                v_device_index_map.begin(),
+                v_device_index_map.end(),
+                v_tmp.begin(),
+                [=] __device__ (const auto val) { return ptr_indexes[val]; });
+
+        // TODO don't recreate
+        thrust::device_vector<uint> v_unique_cnt(size, 0);
+        // TODO don't recreate
+        thrust::device_vector<uint> v_indexes(size);
+        thrust::sequence(v_indexes.begin(), v_indexes.end());
+        count_unique_groups<<<1,1024>>>(
+                thrust::raw_pointer_cast(&v_value_map[0]),
+                thrust::raw_pointer_cast(&v_unique_cnt[0]),
+                size);
+        int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.end(),
+            [] __device__ (auto val) { return val > 0; });
+        v_device_cell_ns.resize(result);
+        v_device_cell_begin.resize(v_device_cell_ns.size());
+        v_coord_indexes.resize(v_device_cell_ns.size());
+        thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
+                [] __device__ (auto val) { return val > 0; });
+        auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
+        thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
+                [=] __device__ (auto val) { return ptr[val] > 0; });
+        thrust::copy_if(thrust::device, v_tmp.begin(), v_tmp.end(), v_indexes.begin(),
+                v_coord_indexes.begin(),
+                [=] __device__ (auto val) { return ptr[val] > 0; });
+
+
+        return result;
+
+//        if (l == 0) {
+//            v_coord_indexes.resize(size);
+//            thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
+//        } else {
+//            thrust::copy(thrust::device, v_coord_indexes.begin(), v_coord_indexes.end(), v_device_index_map.begin());
+//        }
+//
+//        index_kernel<<<1 ,1024>>>(
+//            thrust::raw_pointer_cast(&v_coords[0]),
+//            thrust::raw_pointer_cast(&v_device_index_map[0]),
+//            thrust::raw_pointer_cast(&v_value_map[0]),
+//            thrust::raw_pointer_cast(&v_min_bounds[0]),
+//            thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
+//            size,
+//            max_d,
+//            v_level_eps[l]
+//        );
+//        thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
+//        // TODO don't recreate
+//        thrust::device_vector<uint> v_unique_cnt(size, 0);
+//        // TODO don't recreate
+//        thrust::device_vector<uint> v_indexes(size);
+//        thrust::sequence(v_indexes.begin(), v_indexes.end());
+//        count_unique_groups<<<1,1024>>>(
+//                thrust::raw_pointer_cast(&v_value_map[0]),
+//                thrust::raw_pointer_cast(&v_unique_cnt[0]),
+//                size);
+//        int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.end(),
+//            [] __device__ (auto val) { return val > 0; });
+//        v_device_cell_ns.resize(result);
+//        v_device_cell_begin.resize(v_device_cell_ns.size());
+//        v_coord_indexes.resize(v_device_cell_ns.size());
+//        thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
+//                [] __device__ (auto val) { return val > 0; });
+//        auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
+//        thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
+//                [=] __device__ (auto val) { return ptr[val] > 0; });
+//        thrust::copy_if(thrust::device, v_device_index_map.begin(), v_device_index_map.end(), v_indexes.begin(),
+//                v_coord_indexes.begin(),
+//                [=] __device__ (auto val) { return ptr[val] > 0; });
+//
+//        return result;
     }
 #endif
 
@@ -1315,6 +1345,7 @@ namespace nextdbscan {
             thrust::device_vector<ull> v_device_dims_mult(v_dims_mult);
             thrust::device_vector<ull> v_device_value_map;
             thrust::device_vector<uint> v_device_index_map;
+            thrust::device_vector<uint> v_device_relative_index_map;
             thrust::device_vector<uint> v_device_cell_ns;
             thrust::device_vector<uint> v_device_cell_begin;
             thrust::device_vector<uint> v_coord_indexes;
@@ -1322,31 +1353,19 @@ namespace nextdbscan {
             thrust::host_vector<uint> v_test;
             for (int l = 0; l < max_levels; ++l) {
                 cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
-                        v_device_cell_ns, v_device_cell_begin,
+                        v_device_relative_index_map, v_device_cell_ns, v_device_cell_begin,
                         v_device_min_bounds, v_device_dims_mult, v_device_eps_levels,
                         v_device_value_map, v_coord_indexes, v_device_dims_mult, cuda_size, l, max_d);
                 std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
                 vv_index_map[l] = v_device_index_map;
                 vv_cell_ns[l] = v_device_cell_ns;
                 vv_cell_begin[l] = v_device_cell_begin;
-//                if (l == 0)
-//                    std::cout << "cell begin size: " << vv_cell_begin[l].size() << ": " << v_device_cell_begin.size() << std::endl;
-                if (l < 4) {
-//                    print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
-                    v_test = v_coord_indexes;
-//                    print_array("10 coord indexes: ", &v_test[0], 10);
-                    std::cout << "10 cell index: ";
-                    for (uint i = 0; i < 10 ; ++i) {
-                        std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
-                    }
-                    std::cout << std::endl;
-                }
             }
         });
 #endif
 
         for (int l = 0; l < max_levels; ++l) {
-//#ifndef CUDA_ON
+#ifndef CUDA_ON
             std::vector<ull> v_value_map;
             std::vector<std::vector<uint>> v_bucket(n_threads);
             std::vector<ull> v_bucket_separator;
@@ -1358,17 +1377,15 @@ namespace nextdbscan {
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
-            std::cout << "Level: " << l << " CPU size: " << size << std::endl;
-            if (l < 4) {
-//                print_array("10 cell begins: ", &vv_cell_begin[l][0], 10);
-                std::cout << "10 cell index: ";
-                for (uint i = 0; i < 10 ; ++i) {
-                    std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
-                }
-                std::cout << std::endl;
-//                print_array("10 cell index: ", &vv_index_map[l][0], 10);
-            }
-//#endif
+//            std::cout << "Level: " << l << " CPU size: " << size << std::endl;
+//            if (l < 4) {
+//                std::cout << "10 cell index: ";
+//                for (uint i = 0; i < 10 ; ++i) {
+//                    std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
+//                }
+//                std::cout << std::endl;
+//            }
+#endif
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
         }

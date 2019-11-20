@@ -19,13 +19,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
-#include <fstream>
-#include <iostream>
-#include <cstring>
-#include <vector>
 #include "deep_io.h"
 
-uint deep_io::get_block_size(const uint block_index, const uint number_of_samples, const uint number_of_blocks) {
+void deep_io::count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
+    std::ifstream is(in_file);
+    std::string line, buf;
+    int cnt = 0;
+    dimensions = 0;
+    while (std::getline(is, line)) {
+        if (dimensions == 0) {
+            std::istringstream iss(line);
+            std::vector<std::string> results(std::istream_iterator<std::string>{iss},
+                    std::istream_iterator<std::string>());
+            dimensions = results.size();
+        }
+        ++cnt;
+    }
+    lines = cnt;
+    is.close();
+}
+
+uint deep_io::get_block_size(const uint block_index, const uint number_of_samples,
+        const uint number_of_blocks) noexcept {
     uint block = (number_of_samples / number_of_blocks);
     uint reserve = number_of_samples % number_of_blocks;
     // Some processes will need one more sample if the data size does not fit completely with the number of processes
@@ -35,7 +50,8 @@ uint deep_io::get_block_size(const uint block_index, const uint number_of_sample
     return block;
 }
 
-uint deep_io::get_block_start_offset(const uint part_index, const uint number_of_samples, const uint number_of_blocks) {
+uint deep_io::get_block_start_offset(const uint part_index, const uint number_of_samples,
+        const uint number_of_blocks) noexcept {
     int offset = 0;
     for (int i = 0; i < part_index; i++) {
         offset += get_block_size(i, number_of_samples, number_of_blocks);
@@ -43,7 +59,7 @@ uint deep_io::get_block_start_offset(const uint part_index, const uint number_of
     return offset;
 }
 
-void deep_io::load_meta_data(std::istream &is, s_vec<float> &v_samples) {
+void deep_io::load_meta_data(std::istream &is, s_vec<float> &v_samples) noexcept {
     is.read((char *) &sample_no, sizeof(int));
     is.read((char *) &feature_no, sizeof(int));
     unread_samples = get_block_size(block_index, sample_no, block_no);
@@ -52,7 +68,7 @@ void deep_io::load_meta_data(std::istream &is, s_vec<float> &v_samples) {
     v_samples.resize(unread_samples * feature_no);
 }
 
-int deep_io::load_next_samples(s_vec<float> &v_samples) {
+int deep_io::load_next_samples(s_vec<float> &v_samples) noexcept {
     std::ifstream ifs(file, std::ios::in | std::ifstream::binary);
     if (!is_initialized) {
         load_meta_data(ifs, v_samples);
@@ -77,8 +93,8 @@ int deep_io::load_next_samples(s_vec<float> &v_samples) {
     return bytes_read;
 }
 
-void deep_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets, uint number_of_samples,
-        uint number_of_blocks) {
+void deep_io::get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
+        uint number_of_samples, uint number_of_blocks) noexcept {
     uint total_size = 0;
     for (uint i = 0; i < number_of_blocks; ++i) {
         uint size = get_block_size(i, number_of_samples, number_of_blocks);

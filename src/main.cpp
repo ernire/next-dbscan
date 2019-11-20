@@ -61,7 +61,6 @@ void usage() {
 }
 
 int main(int argc, char** argv) {
-
     char option;
     int m = -1;
     float e = -1;

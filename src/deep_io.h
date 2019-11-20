@@ -25,6 +25,12 @@ SOFTWARE.
 
 #include <istream>
 #include <memory>
+#include <fstream>
+#include <iostream>
+#include <cstring>
+#include <vector>
+#include <sstream>
+#include <iterator>
 #ifdef CUDA_ON
 #include <thrust/host_vector.h>
 #endif
@@ -42,7 +48,6 @@ using s_vec = std::vector<T>;
 template <class T>
 using d_vec = std::vector<std::vector<T>>;
 using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
-
 #endif
 
 const int UNDEFINED_VALUE = -1;
@@ -55,7 +60,7 @@ private:
     int feature_offset = UNDEFINED_VALUE;
     bool is_initialized = false;
 
-    void load_meta_data(std::istream &is, s_vec<float> &v_samples);
+    void load_meta_data(std::istream &is, s_vec<float> &v_samples) noexcept;
 
 public:
     uint unread_samples;
@@ -77,14 +82,16 @@ public:
 
     ~deep_io() = default;
 
-    int load_next_samples(s_vec<float> &v_samples);
+    int load_next_samples(s_vec<float> &v_samples) noexcept;
+
+    static void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept;
 
     static void get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
-            uint number_of_samples, uint number_of_blocks);
+            uint number_of_samples, uint number_of_blocks) noexcept;
 
-    static uint get_block_size(uint block_index, uint number_of_samples, uint number_of_blocks);
+    static uint get_block_size(uint block_index, uint number_of_samples, uint number_of_blocks) noexcept;
 
-    static uint get_block_start_offset(uint block_index, uint number_of_samples, uint number_of_blocks);
+    static uint get_block_start_offset(uint block_index, uint number_of_samples, uint number_of_blocks) noexcept;
 };
 
 std::streampos get_file_size(const char *filePath);
