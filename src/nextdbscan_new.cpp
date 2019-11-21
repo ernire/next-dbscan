@@ -83,9 +83,7 @@ namespace nextdbscan {
         cell_meta_5(uint l, uint c1, uint c2, uint n1, uint n2) : l(l), c1(c1), c2(c2), n1(n1), n2(n2) {}
     };
 
-    //    __global__voidsaxpy(float alpha, float* x, float* y, size_t n){auto i =blockDim.x *blockIdx.x +threadIdx.x;if(i < n){y[i] = a * x[i] + y[i];}}
 #ifdef CUDA_ON
-
     __global__ void index_kernel(const float* v_coord, uint* v_index, ull* v_map, const float* v_min,
             const ull* v_mult, const uint size, const uint max_d, const float eps) {
 
@@ -134,19 +132,66 @@ namespace nextdbscan {
             globalIdx += blockDim.x * gridDim.x;
         }
     }
-#endif
 
-/*
-     inline ull get_cell_index(const float *dv, const s_vec<float> &mv, const ull *dm, const uint max_d,
-            const float size) noexcept {
-        ull cell_index = 0;
-        for (uint d = 0; d < max_d; d++) {
-            cell_index += (ull)((dv[d] - mv[d]) / size) * dm[d];
+    __global__ void determine_min_max(const float* v_coords, const uint* v_index_map, const uint* v_begin,
+            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
+            float* v_max_output, const uint size, const uint max_d, const uint l) {
+        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        uint index;
+        while (globalIdx < size) {
+            uint i = globalIdx;
+            uint begin = v_begin[i];
+            index = v_index_map[begin * max_d];
+            for (uint d = 0; d < max_d; ++d) {
+//                v_min_ouput[]
+            }
+            for (uint j = 1; j < v_ns[i]; j++) {
+
+            }
+
+            globalIdx += blockDim.x * gridDim.x;
         }
-        return cell_index;
     }
 
- */
+    /*
+     *
+        #pragma omp parallel for private(coord_min, coord_max)
+        for (uint i = 0; i < v_cell_begins.size(); i++) {
+            uint begin = v_cell_begins[i];
+            uint coord_offset = 0;
+            if (l == 0) {
+                coord_offset = v_index_maps[begin] * max_d;
+                coord_min = &v_coords[coord_offset];
+                coord_max = &v_coords[coord_offset];
+            } else {
+                coord_min = &vv_min_cell_dims[l - 1][v_index_maps[begin] * max_d];
+                coord_max = &vv_max_cell_dims[l - 1][v_index_maps[begin] * max_d];
+            }
+            std::copy(coord_min, coord_min + max_d, &vv_min_cell_dims[l][i * max_d]);
+            std::copy(coord_max, coord_max + max_d, &vv_max_cell_dims[l][i * max_d]);
+
+            for (uint j = 1; j < v_cell_ns[i]; j++) {
+                uint coord_offset_inner = 0;
+                if (l == 0) {
+                    coord_offset_inner = v_index_maps[begin + j] * max_d;
+                    coord_min = &v_coords[coord_offset_inner];
+                    coord_max = &v_coords[coord_offset_inner];
+                } else {
+                    coord_min = &vv_min_cell_dims[l - 1][v_index_maps[begin + j] * max_d];
+                    coord_max = &vv_max_cell_dims[l - 1][v_index_maps[begin + j] * max_d];
+                }
+                for (uint d = 0; d < max_d; d++) {
+                    if (coord_min[d] < vv_min_cell_dims[l][i * max_d + d]) {
+                        vv_min_cell_dims[l][i * max_d + d] = coord_min[d];
+                    }
+                    if (coord_max[d] > vv_max_cell_dims[l][i * max_d + d]) {
+                        vv_max_cell_dims[l][i * max_d + d] = coord_max[d];
+                    }
+                }
+            }
+        }
+     */
+#endif
 
     void measure_duration(const std::string &name, const bool is_out, const std::function<void()> &callback) noexcept {
         auto start_timestamp = std::chrono::high_resolution_clock::now();
@@ -519,6 +564,62 @@ namespace nextdbscan {
         return total_samples;
     }
 
+    /*
+    uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
+            thrust::device_vector<uint> &v_device_index_map,
+            thrust::device_vector<uint> &v_device_cell_ns,
+            thrust::device_vector<uint> &v_device_cell_begin,
+            thrust::device_vector<float> &v_min_bounds,
+            thrust::device_vector<ull> &v_device_dims_mult,
+            thrust::device_vector<float> &v_level_eps,
+            thrust::device_vector<ull> &v_value_map,
+            thrust::device_vector<uint> &v_coord_indexes,
+            thrust::device_vector<uint> &v_unique_cnt,
+            thrust::device_vector<uint> &v_indexes,
+            thrust::device_vector<ull> &v_dims_mult,
+            const uint size, const uint l, const uint max_d) {
+     */
+
+#ifdef CUDA_ON
+    void cu_calculate_level_cell_bounds(thrust::device_vector<float> &v_coords,
+            thrust::device_vector<uint> &v_device_cell_begin,
+            thrust::device_vector<uint> &v_device_index_map,
+            thrust::device_vector<uint> &v_device_cell_ns,
+            thrust::device_vector<float> &v_min_cell_dim,
+            thrust::device_vector<float> &v_last_min_cell_dim,
+            thrust::device_vector<float> &v_max_cell_dim,
+            thrust::device_vector<float> &v_last_max_cell_dim,
+            const uint l, const uint max_d) {
+
+        if (l == 0) {
+            v_min_cell_dim.resize(v_device_cell_begin.size() * max_d);
+            v_max_cell_dim.resize(v_min_cell_dim.size());
+        } else {
+
+        }
+
+        index_kernel<<<128 ,1024>>>(
+            thrust::raw_pointer_cast(&v_coords[0]),
+            thrust::raw_pointer_cast(&v_device_index_map[0]),
+            thrust::raw_pointer_cast(&v_device_cell_begin[0]),
+            thrust::raw_pointer_cast(&v_device_cell_ns[0]),
+            thrust::raw_pointer_cast(&v_last_min_cell_dim[0]),
+            thrust::raw_pointer_cast(&v_max_cell_dim[0]),
+            thrust::raw_pointer_cast(&v_last_max_cell_dim[0]),
+            thrust::raw_pointer_cast(&v_max_cell_dim[0]),
+            size,
+            max_d,
+            l);
+        );
+
+        /*
+    __global__ void determine_min_max(const float* v_coords, const uint* v_index_map, const uint* v_begin,
+            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
+            float* v_max_output, const uint size, const uint max_d, const uint l) {
+         */
+    }
+#endif
+
     void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
             s_vec<uint> &v_cell_ns, s_vec<uint> &v_index_maps,
             std::vector<std::vector<float>> &vv_min_cell_dims,
@@ -530,14 +631,13 @@ namespace nextdbscan {
         #pragma omp parallel for private(coord_min, coord_max)
         for (uint i = 0; i < v_cell_begins.size(); i++) {
             uint begin = v_cell_begins[i];
-            uint coord_offset = 0;
+            uint coord_offset = v_index_maps[begin] * max_d;
             if (l == 0) {
-                coord_offset = v_index_maps[begin] * max_d;
                 coord_min = &v_coords[coord_offset];
                 coord_max = &v_coords[coord_offset];
             } else {
-                coord_min = &vv_min_cell_dims[l - 1][v_index_maps[begin] * max_d];
-                coord_max = &vv_max_cell_dims[l - 1][v_index_maps[begin] * max_d];
+                coord_min = &vv_min_cell_dims[l - 1][coord_offset];
+                coord_max = &vv_max_cell_dims[l - 1][coord_offset];
             }
             std::copy(coord_min, coord_min + max_d, &vv_min_cell_dims[l][i * max_d]);
             std::copy(coord_max, coord_max + max_d, &vv_max_cell_dims[l][i * max_d]);
@@ -1053,49 +1153,6 @@ namespace nextdbscan {
                 v_coord_indexes.begin(),
                 [=] __device__ (auto val) { return ptr[val] > 0; });
         return result;
-
-//        if (l == 0) {
-//            v_coord_indexes.resize(size);
-//            thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
-//        } else {
-//            thrust::copy(thrust::device, v_coord_indexes.begin(), v_coord_indexes.end(), v_device_index_map.begin());
-//        }
-//
-//        index_kernel<<<1 ,1024>>>(
-//            thrust::raw_pointer_cast(&v_coords[0]),
-//            thrust::raw_pointer_cast(&v_device_index_map[0]),
-//            thrust::raw_pointer_cast(&v_value_map[0]),
-//            thrust::raw_pointer_cast(&v_min_bounds[0]),
-//            thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
-//            size,
-//            max_d,
-//            v_level_eps[l]
-//        );
-//        thrust::sort_by_key(v_value_map.begin(), v_value_map.end(), v_device_index_map.begin());
-//        // TODO don't recreate
-//        thrust::device_vector<uint> v_unique_cnt(size, 0);
-//        // TODO don't recreate
-//        thrust::device_vector<uint> v_indexes(size);
-//        thrust::sequence(v_indexes.begin(), v_indexes.end());
-//        count_unique_groups<<<1,1024>>>(
-//                thrust::raw_pointer_cast(&v_value_map[0]),
-//                thrust::raw_pointer_cast(&v_unique_cnt[0]),
-//                size);
-//        int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.end(),
-//            [] __device__ (auto val) { return val > 0; });
-//        v_device_cell_ns.resize(result);
-//        v_device_cell_begin.resize(v_device_cell_ns.size());
-//        v_coord_indexes.resize(v_device_cell_ns.size());
-//        thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.end(), v_device_cell_ns.begin(),
-//                [] __device__ (auto val) { return val > 0; });
-//        auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
-//        thrust::copy_if(v_indexes.begin(), v_indexes.end(), v_device_cell_begin.begin(),
-//                [=] __device__ (auto val) { return ptr[val] > 0; });
-//        thrust::copy_if(thrust::device, v_device_index_map.begin(), v_device_index_map.end(), v_indexes.begin(),
-//                v_coord_indexes.begin(),
-//                [=] __device__ (auto val) { return ptr[val] > 0; });
-//
-//        return result;
     }
 #endif
 
@@ -1209,8 +1266,8 @@ namespace nextdbscan {
             d_vec<uint> &vv_index_map,
             d_vec<uint> &vv_cell_begin,
             d_vec<uint> &vv_cell_ns,
-            std::vector<std::vector<float>> &vv_min_cell_dim,
-            std::vector<std::vector<float>> &vv_max_cell_dim,
+            d_vec<float> &vv_min_cell_dim,
+            d_vec<float> &vv_max_cell_dim,
             std::vector<uint> &v_leaf_cell_np,
             std::vector<uint> &v_point_np,
             std::vector<cell_meta_3> &v_stack,
@@ -1326,43 +1383,51 @@ namespace nextdbscan {
             d_vec<uint> &vv_index_map,
             d_vec<uint> &vv_cell_begin,
             d_vec<uint> &vv_cell_ns,
-            std::vector<std::vector<float>> &vv_min_cell_dim,
-            std::vector<std::vector<float>> &vv_max_cell_dim,
+            d_vec<float> &vv_min_cell_dim,
+            d_vec<float> &vv_max_cell_dim,
             const uint max_d, const uint n_threads,
             const uint max_levels, const uint n) noexcept {
         uint size = n;
 
 #ifdef CUDA_ON
-        measure_duration("CUDA Index: ", true, [&]() -> void {
-            thrust::device_vector<float> v_device_coords(v_coords);
-            thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
-            thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
-            thrust::device_vector<ull> v_device_dims_mult(v_dims_mult);
-            thrust::device_vector<ull> v_device_value_map;
-            thrust::device_vector<uint> v_device_index_map;
-            thrust::device_vector<uint> v_device_cell_ns;
-            thrust::device_vector<uint> v_device_cell_begin;
-            thrust::device_vector<uint> v_coord_indexes;
-            thrust::device_vector<uint> v_unique_cnt;
-            thrust::device_vector<uint> v_indexes;
-            uint cuda_size = size;
-            thrust::host_vector<uint> v_test;
-            for (int l = 0; l < max_levels; ++l) {
-                cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
-                        v_device_cell_ns, v_device_cell_begin,
-                        v_device_min_bounds, v_device_dims_mult, v_device_eps_levels,
-                        v_device_value_map, v_coord_indexes, v_unique_cnt, v_indexes,
-                        v_device_dims_mult, cuda_size, l, max_d);
-                std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
-                vv_index_map[l] = v_device_index_map;
-                vv_cell_ns[l] = v_device_cell_ns;
-                vv_cell_begin[l] = v_device_cell_begin;
-            }
-        });
-#endif
-
+//        measure_duration("CUDA Index: ", true, [&]() -> void {
+        thrust::device_vector<float> v_device_coords(v_coords);
+        thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
+        thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
+        thrust::device_vector<ull> v_device_dims_mult(v_dims_mult);
+        thrust::device_vector<ull> v_device_value_map;
+        thrust::device_vector<uint> v_device_index_map;
+        thrust::device_vector<uint> v_device_cell_ns;
+        thrust::device_vector<uint> v_device_cell_begin;
+        thrust::device_vector<uint> v_coord_indexes;
+        thrust::device_vector<uint> v_unique_cnt;
+        thrust::device_vector<uint> v_indexes;
+        thrust::device_vector<float> v_min_cell_dim;
+        thrust::device_vector<float> v_last_min_cell_dim;
+        thrust::device_vector<float> v_max_cell_dim;
+        thrust::device_vector<float> v_last_max_cell_dim;
+        uint cuda_size = size;
+        thrust::host_vector<uint> v_test;
         for (int l = 0; l < max_levels; ++l) {
+            cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
+                    v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
+                    v_device_dims_mult, v_device_eps_levels, v_device_value_map,
+                    v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, cuda_size, l, max_d);
+            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
+            vv_index_map[l] = v_device_index_map;
+            vv_cell_ns[l] = v_device_cell_ns;
+            vv_cell_begin[l] = v_device_cell_begin;
+            cu_calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
+                    v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
+                    v_last_max_cell_dim, l, max_d);
+            vv_min_cell_dim[l] = v_min_cell_dim;
+            vv_max_cell_dim[l] = v_max_cell_dim;
+        }
+
+//        });
+#endif
 #ifndef CUDA_ON
+        for (int l = 0; l < max_levels; ++l) {
             std::vector<ull> v_value_map;
             std::vector<std::vector<uint>> v_bucket(n_threads);
             std::vector<ull> v_bucket_separator;
@@ -1374,18 +1439,10 @@ namespace nextdbscan {
                     vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                     v_iterator, size, l, max_d, 0, v_eps_levels[l],
                     &v_dims_mult[l * max_d], n_threads);
-//            std::cout << "Level: " << l << " CPU size: " << size << std::endl;
-//            if (l < 4) {
-//                std::cout << "10 cell index: ";
-//                for (uint i = 0; i < 10 ; ++i) {
-//                    std::cout << vv_index_map[l][vv_cell_begin[l][i]] << " ";
-//                }
-//                std::cout << std::endl;
-//            }
-#endif
             calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
                     vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
         }
+#endif
     }
 
     /*
@@ -1663,8 +1720,8 @@ namespace nextdbscan {
         d_vec<uint> vv_index_map(max_level);
         d_vec<uint> vv_cell_begin(max_level);
         d_vec<uint> vv_cell_ns(max_level);
-        std::vector<std::vector<float>> vv_min_cell_dim(max_level);
-        std::vector<std::vector<float>> vv_max_cell_dim(max_level);
+        d_vec<float> vv_min_cell_dim(max_level);
+        d_vec<float> vv_max_cell_dim(max_level);
         measure_duration("Index and Bounds: ", node_index == 0, [&]() -> void {
             index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
                     vv_cell_begin, vv_cell_ns, vv_min_cell_dim,
