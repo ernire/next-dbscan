@@ -137,6 +137,45 @@ namespace nextdbscan {
             const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
             float* v_max_output, const uint size, const uint max_d, const uint l) {
         int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        uint input_index, output_index;
+        while (globalIdx < size*max_d) {
+            uint i = globalIdx / max_d;
+            uint d = globalIdx % max_d;
+            uint begin = v_begin[i];
+            input_index = v_index_map[begin] * max_d;
+            output_index = i*max_d+d;
+            if (l == 0) {
+                v_min_output[output_index] = v_coords[input_index + d];
+                v_max_output[output_index] = v_coords[input_index + d];
+            } else {
+                v_min_output[output_index] = v_min_input[input_index + d];
+                v_max_output[output_index] = v_max_input[input_index + d];
+            }
+            for (uint j = 1; j < v_ns[i]; j++) {
+                input_index = v_index_map[begin+j] * max_d;
+                if (l == 0) {
+                    if (v_coords[input_index + d] < v_min_output[output_index]) {
+                        v_min_output[output_index] = v_coords[input_index + d];
+                    }
+                    if (v_coords[input_index + d] > v_max_output[output_index]) {
+                        v_max_output[output_index] = v_coords[input_index + d];
+                    }
+                } else {
+                    if (v_min_input[input_index + d] < v_min_output[i * max_d + d]) {
+                        v_min_output[output_index] = v_min_input[input_index + d];
+                    }
+                    if (v_max_input[input_index + d] > v_max_output[output_index]) {
+                        v_max_output[output_index] = v_max_input[input_index + d];
+                    }
+                }
+            }
+            globalIdx += blockDim.x * gridDim.x;
+        }
+    }
+    __global__ void determine_min_max_old(const float* v_coords, const uint* v_index_map, const uint* v_begin,
+            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
+            float* v_max_output, const uint size, const uint max_d, const uint l) {
+        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
         uint index;
         while (globalIdx < size) {
             uint i = globalIdx;
@@ -154,7 +193,6 @@ namespace nextdbscan {
                     v_max_output[i*max_d+d] = v_max_input[index + d];
                 }
             }
-
             for (uint j = 1; j < v_ns[i]; j++) {
                 index = v_index_map[begin+j] * max_d;
                 if (l == 0) {
