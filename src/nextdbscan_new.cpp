@@ -1409,18 +1409,14 @@ namespace nextdbscan {
         thrust::device_vector<float> v_last_min_cell_dim;
         thrust::device_vector<float> v_max_cell_dim;
         thrust::device_vector<float> v_last_max_cell_dim;
-        uint cuda_size = size;
-        thrust::host_vector<uint> v_test;
         for (int l = 0; l < max_levels; ++l) {
-            cuda_size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
+            size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
                     v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
                     v_device_dims_mult, v_device_eps_levels, v_device_value_map,
-                    v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, cuda_size, l, max_d);
-//            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
+                    v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, size, l, max_d);
             cu_calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
                     v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
                     v_last_max_cell_dim, l, max_d);
-
             vv_index_map[l] = v_device_index_map;
             vv_cell_ns[l] = v_device_cell_ns;
             vv_cell_begin[l] = v_device_cell_begin;
