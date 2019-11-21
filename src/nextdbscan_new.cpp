@@ -598,7 +598,7 @@ namespace nextdbscan {
 
         }
 
-        index_kernel<<<128 ,1024>>>(
+        determine_min_max<<<128 ,1024>>>(
             thrust::raw_pointer_cast(&v_coords[0]),
             thrust::raw_pointer_cast(&v_device_index_map[0]),
             thrust::raw_pointer_cast(&v_device_cell_begin[0]),
@@ -607,16 +607,9 @@ namespace nextdbscan {
             thrust::raw_pointer_cast(&v_max_cell_dim[0]),
             thrust::raw_pointer_cast(&v_last_max_cell_dim[0]),
             thrust::raw_pointer_cast(&v_max_cell_dim[0]),
-            size,
+            v_device_index_map.size(),
             max_d,
             l);
-        );
-
-        /*
-    __global__ void determine_min_max(const float* v_coords, const uint* v_index_map, const uint* v_begin,
-            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
-            float* v_max_output, const uint size, const uint max_d, const uint l) {
-         */
     }
 #endif
 
