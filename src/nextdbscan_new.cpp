@@ -133,8 +133,8 @@ namespace nextdbscan {
         }
     }
 
-    __global__ void determine_min_max(const float* v_coords, const uint* v_index_map, const uint* v_begin,
-            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
+    __global__ void determine_min_max(const uint* v_index_map, const uint* v_begin, const uint* v_ns,
+            const float* v_min_input, const float* v_max_input, float* v_min_output,
             float* v_max_output, const uint size, const uint max_d, const uint l) {
         int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
         uint input_index, output_index;
@@ -144,34 +144,22 @@ namespace nextdbscan {
             uint begin = v_begin[i];
             input_index = v_index_map[begin] * max_d;
             output_index = i*max_d+d;
-            if (l == 0) {
-                v_min_output[output_index] = v_coords[input_index + d];
-                v_max_output[output_index] = v_coords[input_index + d];
-            } else {
-                v_min_output[output_index] = v_min_input[input_index + d];
-                v_max_output[output_index] = v_max_input[input_index + d];
-            }
+            v_min_output[output_index] = v_min_input[input_index + d];
+            v_max_output[output_index] = v_max_input[input_index + d];
+
             for (uint j = 1; j < v_ns[i]; j++) {
                 input_index = v_index_map[begin+j] * max_d;
-                if (l == 0) {
-                    if (v_coords[input_index + d] < v_min_output[output_index]) {
-                        v_min_output[output_index] = v_coords[input_index + d];
-                    }
-                    if (v_coords[input_index + d] > v_max_output[output_index]) {
-                        v_max_output[output_index] = v_coords[input_index + d];
-                    }
-                } else {
-                    if (v_min_input[input_index + d] < v_min_output[i * max_d + d]) {
+                if (v_min_input[input_index + d] < v_min_output[i * max_d + d]) {
                         v_min_output[output_index] = v_min_input[input_index + d];
                     }
-                    if (v_max_input[input_index + d] > v_max_output[output_index]) {
-                        v_max_output[output_index] = v_max_input[input_index + d];
-                    }
+                if (v_max_input[input_index + d] > v_max_output[output_index]) {
+                    v_max_output[output_index] = v_max_input[input_index + d];
                 }
             }
             globalIdx += blockDim.x * gridDim.x;
         }
     }
+
     __global__ void determine_min_max_old(const float* v_coords, const uint* v_index_map, const uint* v_begin,
             const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
             float* v_max_output, const uint size, const uint max_d, const uint l) {
@@ -606,19 +594,22 @@ namespace nextdbscan {
         v_min_cell_dim.resize(v_device_cell_begin.size() * max_d, 0);
         v_max_cell_dim.resize(v_min_cell_dim.size(), 0);
 
-        /*
-    __global__ void determine_min_max(const float* v_coords, const uint* v_index_map, const uint* v_begin,
-            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
-            float* v_max_output, const uint size, const uint max_d, const uint l) {
-         */
+        float* v_min_input_ptr;
+        float* v_max_input_ptr;
 
+        if (l == 0) {
+            v_min_input_ptr = thrust::raw_pointer_cast(&v_coords[0]);
+            v_max_input_ptr = thrust::raw_pointer_cast(&v_coords[0]);
+        } else {
+            v_min_input_ptr = thrust::raw_pointer_cast(&v_last_min_cell_dim[0]);
+            v_max_input_ptr = thrust::raw_pointer_cast(&v_last_max_cell_dim[0]);
+        }
         determine_min_max<<<128, 1024>>>(
-            thrust::raw_pointer_cast(&v_coords[0]),
             thrust::raw_pointer_cast(&v_device_index_map[0]),
             thrust::raw_pointer_cast(&v_device_cell_begin[0]),
             thrust::raw_pointer_cast(&v_device_cell_ns[0]),
-            thrust::raw_pointer_cast(&v_last_min_cell_dim[0]),
-            thrust::raw_pointer_cast(&v_last_max_cell_dim[0]),
+            v_min_input_ptr,
+            v_max_input_ptr,
             thrust::raw_pointer_cast(&v_min_cell_dim[0]),
             thrust::raw_pointer_cast(&v_max_cell_dim[0]),
             v_device_cell_begin.size(),
@@ -1403,7 +1394,6 @@ namespace nextdbscan {
         uint size = n;
 
 #ifdef CUDA_ON
-//        measure_duration("CUDA Index: ", true, [&]() -> void {
         thrust::device_vector<float> v_device_coords(v_coords);
         thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
         thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
@@ -1426,7 +1416,7 @@ namespace nextdbscan {
                     v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
                     v_device_dims_mult, v_device_eps_levels, v_device_value_map,
                     v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, cuda_size, l, max_d);
-            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
+//            std::cout << "Level: " << l << " cuda size: " << cuda_size << std::endl;
             cu_calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
                     v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
                     v_last_max_cell_dim, l, max_d);
@@ -1437,8 +1427,6 @@ namespace nextdbscan {
             vv_min_cell_dim[l] = v_min_cell_dim;
             vv_max_cell_dim[l] = v_max_cell_dim;
         }
-
-//        });
 #endif
 #ifndef CUDA_ON
         for (int l = 0; l < max_levels; ++l) {
