@@ -27,6 +27,8 @@ SOFTWARE.
 
 namespace nextdbscan {
 
+    typedef unsigned long long ull;
+
     struct result {
         unsigned int clusters;
         unsigned int noise;

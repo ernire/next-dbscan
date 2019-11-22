@@ -36,11 +36,11 @@ SOFTWARE.
 #endif
 
 #ifdef CUDA_ON
-template <class T>
-using s_vec = thrust::host_vector<T>;
-template <class T>
-using d_vec = thrust::host_vector<thrust::host_vector<T>>;
-using t_uint_iterator = thrust::host_vector<thrust::host_vector<thrust::host_vector<uint>::iterator>>;
+//template <class T>
+//using s_vec = thrust::host_vector<T>;
+//template <class T>
+//using d_vec = thrust::host_vector<thrust::host_vector<T>>;
+//using t_uint_iterator = thrust::host_vector<thrust::host_vector<thrust::host_vector<uint>::iterator>>;
 #endif
 #ifndef CUDA_ON
 template <class T>

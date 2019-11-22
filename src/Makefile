@@ -10,6 +10,7 @@ CCDEBUG=-O1 -pg -g
 CCRUN=-O3
 
 SRC=main.cpp nextdbscan_new.cpp deep_io.cpp
+SRCCUDA=main.cpp nextdbscan_new.cpp deep_io.cpp nextdbscan_cuda.cpp
 OUT=ndbscan
 OUT_BIN=cvs2bin
 OBJ=dbscan.o
@@ -28,7 +29,7 @@ gcc:
 
 cu:
 	rm -f $(OUT)-cu
-	$(NVCC) $(CCRUN) $(CUDAFLAGS) $(CCUDA_FLAG) -x cu $(SRC) -o $(OUT)-cu
+	$(NVCC) $(CCRUN) $(CUDAFLAGS) $(CCUDA_FLAG) -x cu $(SRCCUDA) -o $(OUT)-cu
 
 cvs2bin:
 	rm -f $(OUT_BIN)

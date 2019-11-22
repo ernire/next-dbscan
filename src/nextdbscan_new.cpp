@@ -26,9 +26,7 @@ SOFTWARE.
 #include <cassert>
 #include <algorithm>
 #include <cstring>
-#include <fstream>
 #include <cstdint>
-#include <iterator>
 #include <omp.h>
 #include <numeric>
 #include <functional>
@@ -38,22 +36,16 @@ SOFTWARE.
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
-#ifdef CUDA_ON
-#include <thrust/device_vector.h>
-#endif
 #ifdef HDF5_ON
 #include <hdf5.h>
 #endif
 #include "nextdbscan.h"
+#ifdef CUDA_ON
+#include "nextdbscan_cuda.h"
+#endif
 #include "deep_io.h"
 
 namespace nextdbscan {
-
-#ifdef CUDA_ON
-    // V100
-    static const int CUDA_BLOCKS = 128;
-    static const int CUDA_THREADS = 1024;
-#endif
 
     static const int UNASSIGNED = -1;
 
@@ -61,7 +53,6 @@ namespace nextdbscan {
     static const uint8_t AC = 1;
     static const uint8_t SC = 2;
 
-    typedef unsigned long long ull;
 
     static bool g_quiet = false;
 
@@ -89,137 +80,13 @@ namespace nextdbscan {
         cell_meta_5(uint l, uint c1, uint c2, uint n1, uint n2) : l(l), c1(c1), c2(c2), n1(n1), n2(n2) {}
     };
 
-#ifdef CUDA_ON
-    __global__ void index_kernel(const float* v_coord, uint* v_index, ull* v_map, const float* v_min,
-            const ull* v_mult, const uint size, const uint max_d, const float eps) {
-
-        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        uint coord_index;
-        ull cell_index;
-
-        while (globalIdx < size) {
-            coord_index = v_index[globalIdx] * max_d;
-            cell_index = 0;
-            #pragma unroll
-            for (uint d = 0; d < max_d; d++) {
-                cell_index += (ull)((v_coord[coord_index+d] - v_min[d]) / eps) * v_mult[d];
-            }
-            v_map[globalIdx] = cell_index;
-            globalIdx += blockDim.x * gridDim.x;
-            __syncthreads();
-        }
-    }
-
-    __global__ void count_unique_groups(const ull* v_input, uint* v_output, const uint size) {
-        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        uint8_t is_processing;
-        int cnt, index;
-        ull val;
-
-        while (globalIdx < size) {
-            is_processing = 0;
-            if (globalIdx == 0) {
-                is_processing = 1;
-            } else {
-                if (v_input[globalIdx] != v_input[globalIdx-1]) {
-                    is_processing = 1;
-                }
-            }
-            if (is_processing > 0) {
-                cnt = 0;
-                index = globalIdx;
-                val = v_input[index];
-                while(index < size && val == v_input[index]) {
-                    ++cnt;
-                    ++index;
-                }
-                v_output[globalIdx] = cnt;
-            }
-            globalIdx += blockDim.x * gridDim.x;
-        }
-    }
-
-    __global__ void determine_min_max(const uint* v_index_map, const uint* v_begin, const uint* v_ns,
-            const float* v_min_input, const float* v_max_input, float* v_min_output,
-            float* v_max_output, const uint size, const uint max_d, const uint l) {
-        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        uint input_index, output_index;
-        while (globalIdx < size*max_d) {
-            uint i = globalIdx / max_d;
-            uint d = globalIdx % max_d;
-            uint begin = v_begin[i];
-            input_index = v_index_map[begin] * max_d;
-            output_index = i*max_d+d;
-            v_min_output[output_index] = v_min_input[input_index + d];
-            v_max_output[output_index] = v_max_input[input_index + d];
-
-            for (uint j = 1; j < v_ns[i]; j++) {
-                input_index = v_index_map[begin+j] * max_d;
-                if (v_min_input[input_index + d] < v_min_output[i * max_d + d]) {
-                        v_min_output[output_index] = v_min_input[input_index + d];
-                    }
-                if (v_max_input[input_index + d] > v_max_output[output_index]) {
-                    v_max_output[output_index] = v_max_input[input_index + d];
-                }
-            }
-            globalIdx += blockDim.x * gridDim.x;
-        }
-    }
-
-    __global__ void determine_min_max_old(const float* v_coords, const uint* v_index_map, const uint* v_begin,
-            const uint* v_ns, float* v_min_input, float* v_max_input, float* v_min_output,
-            float* v_max_output, const uint size, const uint max_d, const uint l) {
-        int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        uint index;
-        while (globalIdx < size) {
-            uint i = globalIdx;
-            uint begin = v_begin[i];
-            index = v_index_map[begin] * max_d;
-
-            if (l == 0) {
-                for (uint d = 0; d < max_d; ++d) {
-                    v_min_output[i*max_d+d] = v_coords[index + d];
-                    v_max_output[i*max_d+d] = v_coords[index + d];
-                }
-            } else {
-                for (uint d = 0; d < max_d; ++d) {
-                    v_min_output[i*max_d+d] = v_min_input[index + d];
-                    v_max_output[i*max_d+d] = v_max_input[index + d];
-                }
-            }
-            for (uint j = 1; j < v_ns[i]; j++) {
-                index = v_index_map[begin+j] * max_d;
-                if (l == 0) {
-                    for (uint d = 0; d < max_d; ++d) {
-                        if (v_coords[index + d] < v_min_output[i * max_d + d]) {
-                            v_min_output[i * max_d + d] = v_coords[index + d];
-                        }
-                        if (v_coords[index + d] > v_max_output[i * max_d + d]) {
-                            v_max_output[i * max_d + d] = v_coords[index + d];
-                        }
-                    }
-                } else {
-                    for (uint d = 0; d < max_d; ++d) {
-                        if (v_min_input[index + d] < v_min_output[i * max_d + d]) {
-                            v_min_output[i * max_d + d] = v_min_input[index + d];
-                        }
-                        if (v_max_input[index + d] > v_max_output[i * max_d + d]) {
-                            v_max_output[i * max_d + d] = v_max_input[index + d];
-                        }
-                    }
-                }
-            }
-            globalIdx += blockDim.x * gridDim.x;
-        }
-    }
-#endif
-
     void measure_duration(const std::string &name, const bool is_out, const std::function<void()> &callback) noexcept {
         auto start_timestamp = std::chrono::high_resolution_clock::now();
+        std::cout << name << std::flush;
         callback();
         auto end_timestamp = std::chrono::high_resolution_clock::now();
         if (!g_quiet && is_out) {
-            std::cout << name
+            std::cout
                 << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
                 << " milliseconds\n";
         }
@@ -474,24 +341,6 @@ namespace nextdbscan {
         return res;
     }
 
-//    void count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
-//        std::ifstream is(in_file);
-//        std::string line, buf;
-//        int cnt = 0;
-//        dimensions = 0;
-//        while (std::getline(is, line)) {
-//            if (dimensions == 0) {
-//                std::istringstream iss(line);
-//                std::vector<std::string> results(std::istream_iterator<std::string>{iss},
-//                        std::istream_iterator<std::string>());
-//                dimensions = results.size();
-//            }
-//            ++cnt;
-//        }
-//        lines = cnt;
-//        is.close();
-//    }
-
     void read_input_csv(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
@@ -584,46 +433,6 @@ namespace nextdbscan {
         }
         return total_samples;
     }
-
-#ifdef CUDA_ON
-    void cu_calculate_level_cell_bounds(
-            thrust::device_vector<float> &v_coords,
-            thrust::device_vector<uint> &v_device_cell_begin,
-            thrust::device_vector<uint> &v_device_index_map,
-            thrust::device_vector<uint> &v_device_cell_ns,
-            thrust::device_vector<float> &v_min_cell_dim,
-            thrust::device_vector<float> &v_last_min_cell_dim,
-            thrust::device_vector<float> &v_max_cell_dim,
-            thrust::device_vector<float> &v_last_max_cell_dim,
-            const uint l, const uint max_d) {
-        v_min_cell_dim.resize(v_device_cell_begin.size() * max_d, 0);
-        v_max_cell_dim.resize(v_min_cell_dim.size(), 0);
-        float* v_min_input_ptr;
-        float* v_max_input_ptr;
-        if (l == 0) {
-            v_min_input_ptr = thrust::raw_pointer_cast(&v_coords[0]);
-            v_max_input_ptr = thrust::raw_pointer_cast(&v_coords[0]);
-        } else {
-            v_min_input_ptr = thrust::raw_pointer_cast(&v_last_min_cell_dim[0]);
-            v_max_input_ptr = thrust::raw_pointer_cast(&v_last_max_cell_dim[0]);
-        }
-        determine_min_max<<<CUDA_BLOCKS, CUDA_THREADS>>>(
-            thrust::raw_pointer_cast(&v_device_index_map[0]),
-            thrust::raw_pointer_cast(&v_device_cell_begin[0]),
-            thrust::raw_pointer_cast(&v_device_cell_ns[0]),
-            v_min_input_ptr,
-            v_max_input_ptr,
-            thrust::raw_pointer_cast(&v_min_cell_dim[0]),
-            thrust::raw_pointer_cast(&v_max_cell_dim[0]),
-            v_device_cell_begin.size(),
-            max_d,
-            l);
-        v_last_min_cell_dim.resize(v_min_cell_dim.size());
-        thrust::copy(v_min_cell_dim.begin(), v_min_cell_dim.end(), v_last_min_cell_dim.begin());
-        v_last_max_cell_dim.resize(v_max_cell_dim.size());
-        thrust::copy(v_max_cell_dim.begin(), v_max_cell_dim.end(), v_last_max_cell_dim.begin());
-    }
-#endif
 
     void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
             s_vec<uint> &v_cell_ns, s_vec<uint> &v_index_maps,
@@ -1094,71 +903,6 @@ namespace nextdbscan {
         }
     }
 
-#ifdef CUDA_ON
-    uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
-            thrust::device_vector<uint> &v_device_index_map,
-            thrust::device_vector<uint> &v_device_cell_ns,
-            thrust::device_vector<uint> &v_device_cell_begin,
-            thrust::device_vector<float> &v_min_bounds,
-            thrust::device_vector<ull> &v_device_dims_mult,
-            thrust::device_vector<float> &v_level_eps,
-            thrust::device_vector<ull> &v_value_map,
-            thrust::device_vector<uint> &v_coord_indexes,
-            thrust::device_vector<uint> &v_unique_cnt,
-            thrust::device_vector<uint> &v_indexes,
-            thrust::device_vector<ull> &v_dims_mult,
-            thrust::device_vector<uint> &v_tmp,
-            const uint size, const uint l, const uint max_d) {
-        if (l == 0) {
-            v_value_map.resize(size);
-            v_unique_cnt.resize(size);
-            v_coord_indexes.resize(size);
-            thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
-            v_indexes.resize(size);
-            thrust::sequence(v_indexes.begin(), v_indexes.end());
-        }
-        v_device_index_map.resize(size);
-        thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
-        thrust::fill(v_unique_cnt.begin(), v_unique_cnt.end(), 0);
-        index_kernel<<<CUDA_BLOCKS ,CUDA_THREADS>>>(
-            thrust::raw_pointer_cast(&v_coords[0]),
-            thrust::raw_pointer_cast(&v_coord_indexes[0]),
-            thrust::raw_pointer_cast(&v_value_map[0]),
-            thrust::raw_pointer_cast(&v_min_bounds[0]),
-            thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
-            size,
-            max_d,
-            v_level_eps[l]
-        );
-        thrust::sort_by_key(v_value_map.begin(), v_value_map.begin() + size, v_device_index_map.begin());
-        v_tmp.resize(size);
-        auto ptr_indexes = thrust::raw_pointer_cast(&v_coord_indexes[0]);
-        thrust::transform(thrust::device,
-                v_device_index_map.begin(),
-                v_device_index_map.end(),
-                v_tmp.begin(),
-                [=] __device__ (const auto val) { return ptr_indexes[val]; });
-        count_unique_groups<<<CUDA_BLOCKS,CUDA_THREADS>>>(
-                thrust::raw_pointer_cast(&v_value_map[0]),
-                thrust::raw_pointer_cast(&v_unique_cnt[0]),
-                size);
-        int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size,
-            [] __device__ (auto val) { return val > 0; });
-        v_device_cell_ns.resize(result);
-        v_device_cell_begin.resize(v_device_cell_ns.size());
-        v_coord_indexes.resize(v_device_cell_ns.size());
-        thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size, v_device_cell_ns.begin(),
-                [] __device__ (auto val) { return val > 0; });
-        auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
-        thrust::copy_if(v_indexes.begin(), v_indexes.begin() + size, v_device_cell_begin.begin(),
-                [=] __device__ (auto val) { return ptr[val] > 0; });
-        thrust::copy_if(thrust::device, v_tmp.begin(), v_tmp.end(), v_indexes.begin(),
-                v_coord_indexes.begin(),
-                [=] __device__ (auto val) { return ptr[val] > 0; });
-        return result;
-    }
-#endif
-
     uint index_level_and_get_cells(s_vec<float> &v_coords,
             s_vec<float> &v_min_bounds,
             d_vec<uint> &vv_index_map,
@@ -1265,7 +1009,77 @@ namespace nextdbscan {
         return unique_new_cells;
     }
 
-    bool process_pair_stack(s_vec<float> &v_coords,
+    void collect_sub_tree_edges(d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
+            d_vec<uint> &vv_cell_ns,
+            d_vec<float> &vv_min_cell_dim,
+            d_vec<float> &vv_max_cell_dim,
+            s_vec<cell_meta_2> &v_cell_pairs,
+            std::vector<cell_meta_3> &v_stack, const uint max_d, const float e) {
+        while (!v_stack.empty()) {
+            uint l = v_stack.back().l;
+            uint c1 = v_stack.back().c1;
+            uint c2 = v_stack.back().c2;
+            v_stack.pop_back();
+            uint begin1 = vv_cell_begin[l][c1];
+            uint begin2 = vv_cell_begin[l][c2];
+            if (l == 0) {
+//                v_cell_pairs.emplace_back(c1, c2);
+            } else {
+                for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
+                    uint c1_next = vv_index_map[l][begin1 + k1];
+                    for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
+                        uint c2_next = vv_index_map[l][begin2 + k2];
+                        if (is_in_reach(&vv_min_cell_dim[l - 1][c1_next * max_d],
+                                &vv_max_cell_dim[l - 1][c1_next * max_d],
+                                &vv_min_cell_dim[l - 1][c2_next * max_d],
+                                &vv_max_cell_dim[l - 1][c2_next * max_d], max_d, e)) {
+                            v_stack.emplace_back(l - 1, c1_next, c2_next);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void collect_task_edges(cell_meta &task,
+            d_vec<uint> &vv_index_map,
+            d_vec<uint> &vv_cell_begin,
+            d_vec<uint> &vv_cell_ns,
+            d_vec<float> &vv_min_cell_dim,
+            d_vec<float> &vv_max_cell_dim,
+            s_vec<cell_meta_2> &v_cell_pairs,
+            std::vector<cell_meta_3> &v_stack, const uint max_d, const float e
+            ) {
+
+
+        uint l = task.l;
+        uint c = task.c;
+        uint begin = vv_cell_begin[l][c];
+        for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
+            uint c1_index = vv_index_map[l][begin + c1];
+            for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                uint c2_index = vv_index_map[l][begin + c2];
+                if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
+                        &vv_max_cell_dim[l - 1][c1_index * max_d],
+                        &vv_min_cell_dim[l - 1][c2_index * max_d],
+                        &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+
+                }
+            }
+        }
+            /*
+            for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                uint c2_index = vv_index_map[l][begin + c2];
+                if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * max_d],
+                        &vv_max_cell_dim[l - 1][c1_index * max_d],
+                        &vv_min_cell_dim[l - 1][c2_index * max_d],
+                        &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
+                    vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
+                    */
+    }
+
+    void process_pair_stack(s_vec<float> &v_coords,
             d_vec<uint> &vv_index_map,
             d_vec<uint> &vv_cell_begin,
             d_vec<uint> &vv_cell_ns,
@@ -1280,7 +1094,6 @@ namespace nextdbscan {
             std::vector<uint8_t> &v_is_core,
             std::vector<int> &v_c_labels,
             const uint m, const uint max_d, const float e, const float e2, const bool is_proximity_cnt) noexcept {
-        bool ret = false;
         while (!v_stack.empty()) {
             uint l = v_stack.back().l;
             uint c1 = v_stack.back().c1;
@@ -1290,7 +1103,6 @@ namespace nextdbscan {
             uint begin2 = vv_cell_begin[l][c2];
             if (l == 0) {
                 if (is_proximity_cnt) {
-                    ret = true;
                     if (v_leaf_cell_np[c1] < m || v_leaf_cell_np[c2] < m) {
                         process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
                                 vv_cell_ns[0], v_range_table, v_range_counts, v_leaf_cell_np,
@@ -1318,7 +1130,6 @@ namespace nextdbscan {
                 }
             }
         }
-        return ret;
     }
 
     uint infer_local_types_and_init_clusters(s_vec<uint> &v_index_map,
@@ -1665,9 +1476,7 @@ namespace nextdbscan {
             max_level = determine_data_boundaries(v_coords, v_min_bounds, v_max_bounds, n,
                     max_d, e_inner);
         });
-//        auto v_eps_levels = std::make_unique<float[]>(max_level);
         s_vec<float> v_eps_levels(max_level);
-//        auto v_dims_mult = std::make_unique<ull[]>(max_level * max_d);
         s_vec<ull> v_dims_mult(max_level * max_d);
         measure_duration("Initialize Index Space: ", node_index == 0, [&]() -> void {
             #pragma omp parallel for
@@ -1752,8 +1561,9 @@ namespace nextdbscan {
         std::vector<int> v_c_labels(n, UNASSIGNED);
 
         measure_duration("Local Tree Proximity: ", node_index == 0, [&]() -> void {
-            uint task_cnt = 0;
-            uint empty_task_cnt = 0;
+//            uint task_cnt = 0;
+//            uint empty_task_cnt = 0;
+
 
             #pragma omp parallel
             {
@@ -1763,7 +1573,6 @@ namespace nextdbscan {
                     uint l = v_tasks[i].l;
                     uint c = v_tasks[i].c;
                     uint begin = vv_cell_begin[l][c];
-                    bool check = false;
                     for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
                         uint c1_index = vv_index_map[l][begin + c1];
                         for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
@@ -1772,27 +1581,17 @@ namespace nextdbscan {
                                     &vv_max_cell_dim[l - 1][c1_index * max_d],
                                     &vv_min_cell_dim[l - 1][c2_index * max_d],
                                     &vv_max_cell_dim[l - 1][c2_index * max_d], max_d, e)) {
-                                #pragma omp atomic
-                                ++task_cnt;
                                 vv_stacks3[tid].emplace_back(l - 1, c1_index, c2_index);
-                                bool ret = process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
+                                process_pair_stack(v_coords, vv_index_map, vv_cell_begin,
                                         vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim,
                                         v_leaf_cell_np, v_point_np, vv_stacks3[tid], vv_range_table[tid],
                                         vv_range_counts[tid], v_cell_type, v_is_core, v_c_labels,
                                         m, max_d, e, e2, true);
-                                if (ret) {
-                                    check = true;
-                                }
                             }
                         }
                     }
-                    if (!check) {
-                        #pragma omp atomic
-                        ++empty_task_cnt;
-                    }
                 }
             }
-            std::cout << "empty tasks: " << empty_task_cnt << " of " << task_cnt << " tasks." << std::endl;
         });
 
 #ifdef MPI_ON
@@ -1848,8 +1647,8 @@ namespace nextdbscan {
             max_local_clusters = infer_local_types_and_init_clusters(vv_index_map[0], vv_cell_begin[0],
                     vv_cell_ns[0], v_leaf_cell_np, v_point_np, v_cell_type, v_is_core, v_c_labels,
                     m);
-            if (node_index == 0)
-                std::cout << "Maximum number of local clusters: " << max_local_clusters << std::endl;
+//            if (node_index == 0)
+//                std::cout << "Maximum number of local clusters: " << max_local_clusters << std::endl;
         });
 
         measure_duration("Local Tree Labels: ", node_index == 0, [&]() -> void {
