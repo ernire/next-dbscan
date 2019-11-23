@@ -32,22 +32,18 @@ SOFTWARE.
 #include <sstream>
 #include <iterator>
 #ifdef CUDA_ON
-#include <thrust/host_vector.h>
+//#include <thrust/host_vector.h>
+#include "nextdbscan_cuda.h"
 #endif
 
-#ifdef CUDA_ON
-//template <class T>
-//using s_vec = thrust::host_vector<T>;
-//template <class T>
-//using d_vec = thrust::host_vector<thrust::host_vector<T>>;
-//using t_uint_iterator = thrust::host_vector<thrust::host_vector<thrust::host_vector<uint>::iterator>>;
-#endif
 #ifndef CUDA_ON
-template <class T>
-using s_vec = std::vector<T>;
-template <class T>
-using d_vec = std::vector<std::vector<T>>;
-using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
+
+#include "nextdbscan_omp.h"
+//template <class T>
+//using s_vec = std::vector<T>;
+//template <class T>
+//using d_vec = std::vector<std::vector<T>>;
+//using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
 #endif
 
 const int UNDEFINED_VALUE = -1;

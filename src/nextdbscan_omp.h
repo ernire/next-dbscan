@@ -19,39 +19,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
-#ifndef NEXTDBSCAN
-#define NEXTDBSCAN
+#ifndef NEXT_DBSCAN_NEXTDBSCAN_OMP_H
+#define NEXT_DBSCAN_NEXTDBSCAN_OMP_H
 
-#include <string>
 #include <vector>
+#include "nextdbscan.h"
+//#include "deep_io.h"
 
-typedef unsigned long long ull;
+template <class T>
+using s_vec = std::vector<T>;
+template <class T>
+using d_vec = std::vector<std::vector<T>>;
+using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
 
-static const int UNASSIGNED = -1;
+//typedef unsigned long long ull;
+//typedef unsigned int uint;
 
-namespace nextdbscan {
+void omp_index_points(s_vec<float> &v_coords,
+        s_vec<float> &v_eps_levels,
+        s_vec<ull> &v_dims_mult,
+        s_vec<float> &v_min_bounds,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        uint max_d, uint n_threads,
+        uint max_levels, uint n) noexcept;
 
-    static const uint8_t NC = 0;
-    static const uint8_t AC = 1;
-    static const uint8_t SC = 2;
 
-    struct result {
-        unsigned int clusters;
-        unsigned int noise;
-        unsigned int core_count;
-        unsigned int n;
-        // TODO avoid a memory leak
-        int *point_clusters;
-    };
-
-    result start(
-            unsigned int m,
-            float e,
-            unsigned int n_threads,
-            const std::string &in_file,
-            unsigned int node_index,
-            unsigned int n_nodes) noexcept;
-
-};
-
-#endif
+#endif //NEXT_DBSCAN_NEXTDBSCAN_OMP_H

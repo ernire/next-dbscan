@@ -1,7 +1,24 @@
-//
-// Created by Ernir Erlingsson on 22.11.2019.
-//
+/*
+Copyright (c) 2019, Ernir Erlingsson
 
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+ */
 #include "nextdbscan_cuda.h"
 
 __global__ void index_kernel(const float* v_coord, uint* v_index, ull* v_map, const float* v_min,
@@ -226,4 +243,48 @@ void cu_calculate_level_cell_bounds(
     thrust::copy(v_min_cell_dim.begin(), v_min_cell_dim.end(), v_last_min_cell_dim.begin());
     v_last_max_cell_dim.resize(v_max_cell_dim.size());
     thrust::copy(v_max_cell_dim.begin(), v_max_cell_dim.end(), v_last_max_cell_dim.begin());
+}
+
+void cu_index_points(s_vec<float> &v_coords,
+        s_vec<float> &v_eps_levels,
+        s_vec<ull> &v_dims_mult,
+        s_vec<float> &v_min_bounds,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        const uint max_d, const uint n_threads,
+        const uint max_levels, uint size) noexcept {
+    thrust::device_vector<float> v_device_coords(v_coords);
+    thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
+    thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
+    thrust::device_vector <ull> v_device_dims_mult(v_dims_mult);
+    thrust::device_vector <ull> v_device_value_map;
+    thrust::device_vector <uint> v_device_index_map;
+    thrust::device_vector <uint> v_device_cell_ns;
+    thrust::device_vector <uint> v_device_cell_begin;
+    thrust::device_vector <uint> v_coord_indexes;
+    thrust::device_vector <uint> v_unique_cnt;
+    thrust::device_vector <uint> v_indexes;
+    thrust::device_vector<float> v_min_cell_dim;
+    thrust::device_vector<float> v_last_min_cell_dim;
+    thrust::device_vector<float> v_max_cell_dim;
+    thrust::device_vector<float> v_last_max_cell_dim;
+    thrust::device_vector <uint> v_tmp;
+    for (int l = 0; l < max_levels; ++l) {
+        size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
+                v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
+                v_device_dims_mult, v_device_eps_levels, v_device_value_map,
+                v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, v_tmp,
+                size, l, max_d);
+        cu_calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
+                v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
+                v_last_max_cell_dim, l, max_d);
+        vv_index_map[l] = v_device_index_map;
+        vv_cell_ns[l] = v_device_cell_ns;
+        vv_cell_begin[l] = v_device_cell_begin;
+        vv_min_cell_dim[l] = v_min_cell_dim;
+        vv_max_cell_dim[l] = v_max_cell_dim;
+    }
 }

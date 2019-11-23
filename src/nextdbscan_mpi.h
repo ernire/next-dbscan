@@ -19,39 +19,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
-#ifndef NEXTDBSCAN
-#define NEXTDBSCAN
+#ifndef NEXT_DBSCAN_NEXTDBSCAN_MPI_H
+#define NEXT_DBSCAN_NEXTDBSCAN_MPI_H
 
-#include <string>
-#include <vector>
 
-typedef unsigned long long ull;
 
-static const int UNASSIGNED = -1;
-
-namespace nextdbscan {
-
-    static const uint8_t NC = 0;
-    static const uint8_t AC = 1;
-    static const uint8_t SC = 2;
-
-    struct result {
-        unsigned int clusters;
-        unsigned int noise;
-        unsigned int core_count;
-        unsigned int n;
-        // TODO avoid a memory leak
-        int *point_clusters;
-    };
-
-    result start(
-            unsigned int m,
-            float e,
-            unsigned int n_threads,
-            const std::string &in_file,
-            unsigned int node_index,
-            unsigned int n_nodes) noexcept;
-
-};
-
-#endif
+#endif //NEXT_DBSCAN_NEXTDBSCAN_MPI_H
