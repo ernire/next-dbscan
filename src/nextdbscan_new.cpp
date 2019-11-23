@@ -421,15 +421,6 @@ namespace nextdbscan {
         return total_samples;
     }
 
-    template<class T>
-    void print_array(const std::string &name, T *arr, const uint max_d) noexcept {
-        std::cout << name << ": ";
-        for (int i = 0; i < max_d; ++i) {
-            std::cout << arr[i] << " ";
-        }
-        std::cout << std::endl;
-    }
-
     int determine_data_boundaries(s_vec<float> &v_coords, s_vec<float> &v_min_bounds,
             s_vec<float> &v_max_bounds, const uint n, const uint max_d,
             const float e_inner) noexcept {
@@ -718,12 +709,12 @@ namespace nextdbscan {
             const uint max_levels, const uint n) noexcept {
         uint size = n;
 #ifdef CUDA_ON
-        cu_index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map, vv_cell_begin,
+        nextdbscan_cuda::index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map, vv_cell_begin,
                 vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
 #endif
 #ifndef CUDA_ON
-        omp_index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map, vv_cell_begin,
-                vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
+        nextdbscan_omp::index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
+                vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
 #endif
     }
 

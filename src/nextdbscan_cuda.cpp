@@ -144,7 +144,8 @@ __global__ void determine_min_max_old(const float* v_coords, const uint* v_index
     }
 }
 
-uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
+// CUDA does not allow kernel parents to be private/protected members of a class
+uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_coords,
         thrust::device_vector<uint> &v_device_index_map,
         thrust::device_vector<uint> &v_device_cell_ns,
         thrust::device_vector<uint> &v_device_cell_begin,
@@ -207,7 +208,7 @@ uint cu_index_level_and_get_cells(thrust::device_vector<float> &v_coords,
     return result;
 }
 
-void cu_calculate_level_cell_bounds(
+void nextdbscan_cuda::calculate_level_cell_bounds(
         thrust::device_vector<float> &v_coords,
         thrust::device_vector<uint> &v_device_cell_begin,
         thrust::device_vector<uint> &v_device_index_map,
@@ -245,7 +246,7 @@ void cu_calculate_level_cell_bounds(
     thrust::copy(v_max_cell_dim.begin(), v_max_cell_dim.end(), v_last_max_cell_dim.begin());
 }
 
-void cu_index_points(s_vec<float> &v_coords,
+void nextdbscan_cuda::index_points(s_vec<float> &v_coords,
         s_vec<float> &v_eps_levels,
         s_vec<ull> &v_dims_mult,
         s_vec<float> &v_min_bounds,
@@ -273,12 +274,12 @@ void cu_index_points(s_vec<float> &v_coords,
     thrust::device_vector<float> v_last_max_cell_dim;
     thrust::device_vector <uint> v_tmp;
     for (int l = 0; l < max_levels; ++l) {
-        size = cu_index_level_and_get_cells(v_device_coords, v_device_index_map,
+        size = index_level_and_get_cells(v_device_coords, v_device_index_map,
                 v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
                 v_device_dims_mult, v_device_eps_levels, v_device_value_map,
                 v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, v_tmp,
                 size, l, max_d);
-        cu_calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
+        calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
                 v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
                 v_last_max_cell_dim, l, max_d);
         vv_index_map[l] = v_device_index_map;

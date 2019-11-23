@@ -34,7 +34,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -Wextra -O3 -fopenmp -fno-exceptions -ffast-math -funroll-loops -march=native -malign-data=abi")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
 
-set(NDB_FILES src/nextdbscan_new.cpp src/deep_io.cpp src/nextdbscan_omp.cpp)
+set(NDB_FILES src/nextdbscan_new.cpp src/deep_io.cpp src/nextdbscan_omp.cpp src/next_util.cpp)
 
 add_executable(ndbscan src/main.cpp ${NDB_FILES})
 add_executable(ndbscan_tests src/test.cpp ${NDB_FILES})

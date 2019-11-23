@@ -35,7 +35,7 @@ inline ull get_cell_index(const float *dv, const s_vec<float> &mv, const ull *dm
     return cell_index;
 }
 
-void determine_index_values(s_vec<float> &v_coords,
+void nextdbscan_omp::determine_index_values(s_vec<float> &v_coords,
         s_vec<float> &v_min_bounds,
         d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin,
@@ -56,7 +56,7 @@ void determine_index_values(s_vec<float> &v_coords,
     }
 }
 
-void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
+void nextdbscan_omp::sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
         s_vec<uint> &v_index_map,
         std::vector<ull> &v_value_map,
         std::vector<std::vector<uint>> &v_bucket,
@@ -139,7 +139,7 @@ void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint
     }
 }
 
-uint index_level_and_get_cells(s_vec<float> &v_coords,
+uint nextdbscan_omp::index_level_and_get_cells(s_vec<float> &v_coords,
         s_vec<float> &v_min_bounds,
         d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin,
@@ -245,10 +245,11 @@ uint index_level_and_get_cells(s_vec<float> &v_coords,
     return unique_new_cells;
 }
 
-void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
+void nextdbscan_omp::calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
         s_vec<uint> &v_cell_ns, s_vec<uint> &v_index_maps,
         std::vector<std::vector<float>> &vv_min_cell_dims,
-        std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept {
+        std::vector<std::vector<float>> &vv_max_cell_dims,
+        const uint max_d, const uint l) noexcept {
     vv_min_cell_dims[l].resize(v_cell_begins.size() * max_d);
     vv_max_cell_dims[l].resize(vv_min_cell_dims[l].size());
     float *coord_min = nullptr, *coord_max = nullptr;
@@ -289,7 +290,7 @@ void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
     }
 }
 
-void omp_index_points(s_vec<float> &v_coords,
+void nextdbscan_omp::index_points(s_vec<float> &v_coords,
         s_vec<float> &v_eps_levels,
         s_vec<ull> &v_dims_mult,
         s_vec<float> &v_min_bounds,
