@@ -144,6 +144,49 @@ __global__ void determine_min_max_old(const float* v_coords, const uint* v_index
     }
 }
 
+void print_cuda_memory_usage() {
+    size_t free_byte;
+    size_t total_byte;
+    auto cuda_status = cudaMemGetInfo( &free_byte, &total_byte );
+
+    if ( cudaSuccess != cuda_status ) {
+        printf("Error: cudaMemGetInfo fails, %s \n", cudaGetErrorString(cuda_status) );
+        exit(1);
+    }
+    double free_db = (double)free_byte ;
+    double total_db = (double)total_byte ;
+    double used_db = total_db - free_db ;
+    printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+            used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+}
+/*
+         size_t free_byte ;
+
+        size_t total_byte ;
+
+        cuda_status = cudaMemGetInfo( &free_byte, &total_byte ) ;
+
+        if ( cudaSuccess != cuda_status ){
+
+            printf("Error: cudaMemGetInfo fails, %s \n", cudaGetErrorString(cuda_status) );
+
+            exit(1);
+
+        }
+
+
+
+        double free_db = (double)free_byte ;
+
+        double total_db = (double)total_byte ;
+
+        double used_db = total_db - free_db ;
+
+        printf("GPU memory usage: used = %f, free = %f MB, total = %f MB\n",
+
+            used_db/1024.0/1024.0, free_db/1024.0/1024.0, total_db/1024.0/1024.0);
+ */
+
 // CUDA does not allow kernel parents to be private/protected members of a class
 uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_coords,
         thrust::device_vector<uint> &v_device_index_map,
@@ -159,13 +202,69 @@ uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_
         thrust::device_vector<ull> &v_dims_mult,
         thrust::device_vector<uint> &v_tmp,
         const uint size, const uint l, const uint max_d) noexcept {
+    // Start with 6 GB
+    int result = 0;
+    // 4 GB
+    v_value_map.resize(size);
     if (l == 0) {
-        v_value_map.resize(size);
-        v_unique_cnt.resize(size);
+        // 2 GB
         v_coord_indexes.resize(size);
         thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
+    }
+    index_kernel<<<CUDA_BLOCKS ,CUDA_THREADS>>>(
+            thrust::raw_pointer_cast(&v_coords[0]),
+                    thrust::raw_pointer_cast(&v_coord_indexes[0]),
+                    thrust::raw_pointer_cast(&v_value_map[0]),
+                    thrust::raw_pointer_cast(&v_min_bounds[0]),
+                    thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
+                    size,
+                    max_d,
+                    v_level_eps[l]
+    );
+    std::cout << "CHECKPOINT 1" << std::endl;
+    print_cuda_memory_usage();
+    if (l == 0) {
+        thrust::sort_by_key(v_value_map.begin(), v_value_map.begin() + size, v_coord_indexes.begin());
+    } else {
+        v_device_index_map.resize(size);
+        thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
+        thrust::sort_by_key(v_value_map.begin(), v_value_map.begin() + size, v_device_index_map.begin());
+    }
+    std::cout << "CHECKPOINT 1.5" << std::endl;
+    // 2 GB
+    v_unique_cnt.resize(size);
+    std::cout << "CHECKPOINT 2" << std::endl;
+    print_cuda_memory_usage();
+    thrust::fill(v_unique_cnt.begin(), v_unique_cnt.end(), 0);
+    count_unique_groups<<<CUDA_BLOCKS,CUDA_THREADS>>>(
+            thrust::raw_pointer_cast(&v_value_map[0]),
+            thrust::raw_pointer_cast(&v_unique_cnt[0]),
+            size);
+    v_value_map.clear();
+    v_value_map.shrink_to_fit();
+    result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size,
+        [] __device__ (auto val) { return val > 0; });
+    v_device_cell_ns.resize(result);
+    thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size, v_device_cell_ns.begin(),
+            [] __device__ (auto val) { return val > 0; });
+    v_device_cell_begin.resize(v_device_cell_ns.size());
+
+
+
+    return result;
+    /*
+    if (l == 0) {
+        std::cout << "setting size: " << size << std::endl;
+        v_value_map.resize(size);
+        print_cuda_memory_usage();
+        v_unique_cnt.resize(size);
+        print_cuda_memory_usage();
+        v_coord_indexes.resize(size);
+        thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
+        print_cuda_memory_usage();
         v_indexes.resize(size);
         thrust::sequence(v_indexes.begin(), v_indexes.end());
+        print_cuda_memory_usage();
     }
     v_device_index_map.resize(size);
     thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
@@ -180,6 +279,7 @@ uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_
                     max_d,
                     v_level_eps[l]
     );
+    print_cuda_memory_usage();
     thrust::sort_by_key(v_value_map.begin(), v_value_map.begin() + size, v_device_index_map.begin());
     v_tmp.resize(size);
     auto ptr_indexes = thrust::raw_pointer_cast(&v_coord_indexes[0]);
@@ -206,7 +306,76 @@ uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_
             v_coord_indexes.begin(),
             [=] __device__ (auto val) { return ptr[val] > 0; });
     return result;
+     */
 }
+//uint nextdbscan_cuda::index_level_and_get_cells(thrust::device_vector<float> &v_coords,
+//        thrust::device_vector<uint> &v_device_index_map,
+//        thrust::device_vector<uint> &v_device_cell_ns,
+//        thrust::device_vector<uint> &v_device_cell_begin,
+//        thrust::device_vector<float> &v_min_bounds,
+//        thrust::device_vector<ull> &v_device_dims_mult,
+//        thrust::device_vector<float> &v_level_eps,
+//        thrust::device_vector<ull> &v_value_map,
+//        thrust::device_vector<uint> &v_coord_indexes,
+//        thrust::device_vector<uint> &v_unique_cnt,
+//        thrust::device_vector<uint> &v_indexes,
+//        thrust::device_vector<ull> &v_dims_mult,
+//        thrust::device_vector<uint> &v_tmp,
+//        const uint size, const uint l, const uint max_d) noexcept {
+//    if (l == 0) {
+//        std::cout << "setting size: " << size << std::endl;
+//        v_value_map.resize(size);
+//        print_cuda_memory_usage();
+//        v_unique_cnt.resize(size);
+//        print_cuda_memory_usage();
+//        v_coord_indexes.resize(size);
+//        thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
+//        print_cuda_memory_usage();
+//        v_indexes.resize(size);
+//        thrust::sequence(v_indexes.begin(), v_indexes.end());
+//        print_cuda_memory_usage();
+//    }
+//    v_device_index_map.resize(size);
+//    thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
+//    thrust::fill(v_unique_cnt.begin(), v_unique_cnt.end(), 0);
+//    index_kernel<<<CUDA_BLOCKS ,CUDA_THREADS>>>(
+//            thrust::raw_pointer_cast(&v_coords[0]),
+//                    thrust::raw_pointer_cast(&v_coord_indexes[0]),
+//                    thrust::raw_pointer_cast(&v_value_map[0]),
+//                    thrust::raw_pointer_cast(&v_min_bounds[0]),
+//                    thrust::raw_pointer_cast(&v_dims_mult[l * max_d]),
+//                    size,
+//                    max_d,
+//                    v_level_eps[l]
+//    );
+//    print_cuda_memory_usage();
+//    thrust::sort_by_key(v_value_map.begin(), v_value_map.begin() + size, v_device_index_map.begin());
+//    v_tmp.resize(size);
+//    auto ptr_indexes = thrust::raw_pointer_cast(&v_coord_indexes[0]);
+//    thrust::transform(thrust::device,
+//            v_device_index_map.begin(),
+//            v_device_index_map.end(),
+//            v_tmp.begin(),
+//            [=] __device__ (const auto val) { return ptr_indexes[val]; });
+//    count_unique_groups<<<CUDA_BLOCKS,CUDA_THREADS>>>(
+//            thrust::raw_pointer_cast(&v_value_map[0]),
+//                    thrust::raw_pointer_cast(&v_unique_cnt[0]),
+//                    size);
+//    int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size,
+//    [] __device__ (auto val) { return val > 0; });
+//    v_device_cell_ns.resize(result);
+//    v_device_cell_begin.resize(v_device_cell_ns.size());
+//    v_coord_indexes.resize(v_device_cell_ns.size());
+//    thrust::copy_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size, v_device_cell_ns.begin(),
+//            [] __device__ (auto val) { return val > 0; });
+//    auto ptr = thrust::raw_pointer_cast(&v_unique_cnt[0]);
+//    thrust::copy_if(v_indexes.begin(), v_indexes.begin() + size, v_device_cell_begin.begin(),
+//            [=] __device__ (auto val) { return ptr[val] > 0; });
+//    thrust::copy_if(thrust::device, v_tmp.begin(), v_tmp.end(), v_indexes.begin(),
+//            v_coord_indexes.begin(),
+//            [=] __device__ (auto val) { return ptr[val] > 0; });
+//    return result;
+//}
 
 void nextdbscan_cuda::calculate_level_cell_bounds(
         thrust::device_vector<float> &v_coords,
@@ -274,11 +443,14 @@ void nextdbscan_cuda::index_points(s_vec<float> &v_coords,
     thrust::device_vector<float> v_last_max_cell_dim;
     thrust::device_vector <uint> v_tmp;
     for (int l = 0; l < max_levels; ++l) {
+        std::cout << "l: " << l << std::endl;
+        print_cuda_memory_usage();
         size = index_level_and_get_cells(v_device_coords, v_device_index_map,
                 v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
                 v_device_dims_mult, v_device_eps_levels, v_device_value_map,
                 v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, v_tmp,
                 size, l, max_d);
+        std::cout << "l: " << l << " size: " << size << std::endl;
         calculate_level_cell_bounds(v_device_coords, v_device_cell_begin, v_device_index_map,
                 v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
                 v_last_max_cell_dim, l, max_d);

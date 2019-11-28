@@ -40,6 +40,7 @@ SOFTWARE.
 #include <hdf5.h>
 #endif
 #include "nextdbscan.h"
+#include "nc_tree.h"
 #ifdef CUDA_ON
 #include "nextdbscan_cuda.h"
 #endif
@@ -714,7 +715,8 @@ namespace nextdbscan {
 #endif
 #ifndef CUDA_ON
         nextdbscan_omp::index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
-                vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
+                vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels,
+                size);
 #endif
     }
 
@@ -751,6 +753,11 @@ namespace nextdbscan {
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
         }
+
+        nc_tree nc(&v_coords[0], max_d, n, e, m);
+        nc.init();
+        std::cout << "NC Tree levels: " << nc.n_level << std::endl;
+
         const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
         s_vec<float> v_min_bounds(max_d);
@@ -769,6 +776,8 @@ namespace nextdbscan {
                 calc_dims_mult(&v_dims_mult[l * max_d], max_d, v_min_bounds, v_max_bounds, v_eps_levels[l]);
             }
         });
+
+        std::cout << "Max levels: " << max_level << std::endl;
 
         d_vec<uint> vv_index_map(max_level);
         d_vec<uint> vv_cell_begin(max_level);

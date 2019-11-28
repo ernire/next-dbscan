@@ -35,7 +35,7 @@ inline ull get_cell_index(const float *dv, const s_vec<float> &mv, const ull *dm
     return cell_index;
 }
 
-void nextdbscan_omp::determine_index_values(s_vec<float> &v_coords,
+void determine_index_values(s_vec<float> &v_coords,
         s_vec<float> &v_min_bounds,
         d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin,
@@ -56,7 +56,7 @@ void nextdbscan_omp::determine_index_values(s_vec<float> &v_coords,
     }
 }
 
-void nextdbscan_omp::sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
+void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
         s_vec<uint> &v_index_map,
         std::vector<ull> &v_value_map,
         std::vector<std::vector<uint>> &v_bucket,
@@ -139,18 +139,26 @@ void nextdbscan_omp::sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std:
     }
 }
 
-uint nextdbscan_omp::index_level_and_get_cells(s_vec<float> &v_coords,
-        s_vec<float> &v_min_bounds,
-        d_vec<uint> &vv_index_map,
-        d_vec<uint> &vv_cell_begin,
-        s_vec<uint> &v_cell_ns,
-        std::vector<ull> &v_value_map,
-        std::vector<std::vector<uint>> &v_bucket,
-        std::vector<ull> &v_bucket_separator,
-        std::vector<ull> &v_bucket_separator_tmp,
-        t_uint_iterator &v_iterator,
-        const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
-        const ull *dims_mult, const uint n_threads) noexcept {
+uint
+nextdbscan_omp::index_level_and_get_cells(s_vec<float> &v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
+        std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
+        std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint max_d,
+        uint node_offset, float level_eps, ull *dims_mult, uint n_threads) noexcept {
+//    return 0;
+//}
+//uint index_level_and_get_cells(s_vec<float> &v_coords,
+//        s_vec<float> &v_min_bounds,
+//        d_vec<uint> &vv_index_map,
+//        d_vec<uint> &vv_cell_begin,
+//        s_vec<uint> &v_cell_ns,
+//        std::vector<ull> &v_value_map,
+//        std::vector<std::vector<uint>> &v_bucket,
+//        std::vector<ull> &v_bucket_separator,
+//        std::vector<ull> &v_bucket_separator_tmp,
+//        t_uint_iterator &v_iterator,
+//        const uint size, const int l, const uint max_d, const uint node_offset, const float level_eps,
+//        const ull *dims_mult, const uint n_threads) noexcept {
     vv_index_map[l].resize(size);
     v_value_map.resize(size);
     uint unique_new_cells = 0;

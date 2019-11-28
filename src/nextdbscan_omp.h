@@ -39,25 +39,13 @@ private:
             std::vector<std::vector<float>> &vv_min_cell_dims,
             std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept;
 
-    static void determine_index_values(s_vec<float> &v_coords,
-            s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
-            d_vec<uint> &vv_cell_begin, std::vector<ull> &v_value_map,
-            const ull *dims_mult, int l, uint size, uint offset, uint max_d,
-            float level_eps, uint node_offset) noexcept;
-
     static uint index_level_and_get_cells(s_vec<float> &v_coords,
             s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
             d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns,
             std::vector<ull> &v_value_map, std::vector<std::vector<uint>> &v_bucket,
             std::vector<ull> &v_bucket_separator, std::vector<ull> &v_bucket_separator_tmp,
             t_uint_iterator &v_iterator, uint size, int l, uint max_d, uint node_offset,
-            float level_eps, const ull *dims_mult, uint n_threads) noexcept;
-
-    static void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
-            s_vec<uint> &v_index_map, std::vector<ull> &v_value_map,
-            std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_seperator,
-            std::vector<ull> &v_bucket_seperator_tmp, t_uint_iterator &v_iterator,
-            uint tid, uint n_threads, bool is_parallel_sort) noexcept;
+            float level_eps, ull *dims_mult, uint n_threads) noexcept;
 
 public:
     static void index_points(s_vec<float> &v_coords,
