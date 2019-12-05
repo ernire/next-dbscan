@@ -48,6 +48,8 @@ SOFTWARE.
 #include "nextdbscan_omp.h"
 #endif
 #include "deep_io.h"
+#include "next_util.h"
+//#include "next_util.h"
 
 namespace nextdbscan {
 
@@ -714,7 +716,7 @@ namespace nextdbscan {
                 vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
 #endif
 #ifndef CUDA_ON
-        nextdbscan_omp::index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
+        nextdbscan_omp::index_points(&v_coords[0], v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
                 vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels,
                 size);
 #endif
@@ -739,6 +741,7 @@ namespace nextdbscan {
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint n_nodes) noexcept {
         auto time_start = std::chrono::high_resolution_clock::now();
+        omp_set_dynamic(0);
         omp_set_num_threads(n_threads);
         uint n, max_d, total_samples;
         s_vec<float> v_coords;
@@ -756,7 +759,10 @@ namespace nextdbscan {
 
         nc_tree nc(&v_coords[0], max_d, n, e, m);
         nc.init();
-        std::cout << "NC Tree levels: " << nc.n_level << std::endl;
+        measure_duration("Build tree: ", node_index == 0, [&]() -> void {
+            nc.build_tree(n_threads);
+        });
+        next_util::print_tree_meta_data(nc);
 
         const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
@@ -789,6 +795,14 @@ namespace nextdbscan {
                     vv_cell_begin, vv_cell_ns, vv_min_cell_dim,
                     vv_max_cell_dim, max_d, n_threads, max_level, n);
         });
+
+//        for (uint l = 0; l < max_level; ++l) {
+//            std::cout << "l: " << l << " : " << vv_cell_ns[l].size() << std::endl;
+//        }
+
+//        std::cout << "Real tree level 0 size: " << vv_cell_begin[0].size() << std::endl;
+//        print_array("vec begin: ", &vv_cell_begin[0][20], 20);
+//        print_array("vec index: ", &vv_index_map[0][20], 20);
         std::vector<std::vector<cell_meta_3>> vv_stacks3(n_threads);
         std::vector<std::vector<bool>> vv_range_table(n_threads);
         std::vector<std::vector<uint>> vv_range_counts(n_threads);

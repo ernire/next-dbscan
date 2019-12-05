@@ -35,7 +35,7 @@ inline ull get_cell_index(const float *dv, const s_vec<float> &mv, const ull *dm
     return cell_index;
 }
 
-void determine_index_values(s_vec<float> &v_coords,
+void determine_index_values(const float *v_coords,
         s_vec<float> &v_min_bounds,
         d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin,
@@ -140,7 +140,7 @@ void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint
 }
 
 uint
-nextdbscan_omp::index_level_and_get_cells(s_vec<float> &v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
+nextdbscan_omp::index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
         std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
         std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint max_d,
@@ -298,7 +298,7 @@ void nextdbscan_omp::calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v
     }
 }
 
-void nextdbscan_omp::index_points(s_vec<float> &v_coords,
+void nextdbscan_omp::index_points(float *v_coords,
         s_vec<float> &v_eps_levels,
         s_vec<ull> &v_dims_mult,
         s_vec<float> &v_min_bounds,
@@ -321,7 +321,7 @@ void nextdbscan_omp::index_points(s_vec<float> &v_coords,
                 vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
                 v_iterator, size, l, max_d, 0, v_eps_levels[l],
                 &v_dims_mult[l * max_d], n_threads);
-        calculate_level_cell_bounds(&v_coords[0], vv_cell_begin[l], vv_cell_ns[l],
+        calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
                 vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, max_d, l);
     }
 }

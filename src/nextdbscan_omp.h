@@ -39,7 +39,7 @@ private:
             std::vector<std::vector<float>> &vv_min_cell_dims,
             std::vector<std::vector<float>> &vv_max_cell_dims, uint max_d, uint l) noexcept;
 
-    static uint index_level_and_get_cells(s_vec<float> &v_coords,
+    static uint index_level_and_get_cells(float *v_coords,
             s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
             d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns,
             std::vector<ull> &v_value_map, std::vector<std::vector<uint>> &v_bucket,
@@ -48,7 +48,7 @@ private:
             float level_eps, ull *dims_mult, uint n_threads) noexcept;
 
 public:
-    static void index_points(s_vec<float> &v_coords,
+    static void index_points(float *v_coords,
             s_vec<float> &v_eps_levels,
             s_vec<ull> &v_dims_mult,
             s_vec<float> &v_min_bounds,
