@@ -41,28 +41,73 @@ struct cell_meta {
     cell_meta(uint l, uint c) : l(l), c(c) {}
 };
 
-/*
-void calc_bounds(s_vec<float> &v_coords, uint n, float *min_bounds,
-        float *max_bounds, const uint max_d) noexcept {
-    for (uint d = 0; d < max_d; d++) {
-        min_bounds[d] = INT32_MAX;
-        max_bounds[d] = INT32_MIN;
+struct cell_meta_pair_level {
+    uint l, c1, c2;
+
+    cell_meta_pair_level(uint l, uint c1, uint c2) : l(l), c1(c1), c2(c2) {}
+};
+
+inline bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
+        const uint max_d, const float e) noexcept {
+    for (uint d = 0; d < max_d; ++d) {
+        if ((min2[d] > (max1[d] + e) || min2[d] < (min1[d] - e)) &&
+            (min1[d] > (max2[d] + e) || min1[d] < (min2[d] - e)) &&
+            (max2[d] > (max1[d] + e) || max2[d] < (min1[d] - e)) &&
+            (max1[d] > (max2[d] + e) || max1[d] < (min2[d] - e))) {
+            return false;
+        }
     }
-    #pragma omp parallel for reduction(max:max_bounds[:max_d]) reduction(min:min_bounds[:max_d])
-    for (uint i = 0; i < n; i++) {
-        size_t index = i * max_d;
-        for (uint d = 0; d < max_d; d++) {
-            if (v_coords[index + d] > max_bounds[d]) {
-                max_bounds[d] = v_coords[index + d];
+    return true;
+}
+
+void process_pair_stack(s_vec<cell_meta_pair> &v_edges,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        std::vector<cell_meta_pair_level> &v_stack,
+        const uint n_dim, const float e) noexcept {
+    while (!v_stack.empty()) {
+        uint l = v_stack.back().l;
+        uint c1 = v_stack.back().c1;
+        uint c2 = v_stack.back().c2;
+        v_stack.pop_back();
+        uint begin1 = vv_cell_begin[l][c1];
+        uint begin2 = vv_cell_begin[l][c2];
+        if (l == 0) {
+            v_edges.emplace_back(c1, c2);
+            /*
+            if (is_proximity_cnt) {
+                if (v_leaf_cell_np[c1] < m || v_leaf_cell_np[c2] < m) {
+                    process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
+                            vv_cell_ns[0], v_range_table, v_range_counts, v_leaf_cell_np,
+                            max_d, e2, m, c1, begin1, c2, begin2);
+                }
+            } else {
+                if (v_cell_types[c1] != NC || v_cell_types[c2] != NC) {
+                    process_pair_labels(v_coords,v_c_labels, vv_cell_ns,
+                            vv_index_map, v_cell_types, v_is_core, c1, c2, l,
+                            begin1, begin2, max_d, e2);
+                }
             }
-            if (v_coords[index + d] < min_bounds[d]) {
-                min_bounds[d] = v_coords[index + d];
+             */
+        } else {
+            for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
+                uint c1_next = vv_index_map[l][begin1 + k1];
+                for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
+                    uint c2_next = vv_index_map[l][begin2 + k2];
+                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_next * n_dim],
+                            &vv_max_cell_dim[l - 1][c1_next * n_dim],
+                            &vv_min_cell_dim[l - 1][c2_next * n_dim],
+                            &vv_max_cell_dim[l - 1][c2_next * n_dim], n_dim, e)) {
+                        v_stack.emplace_back(l - 1, c1_next, c2_next);
+                    }
+                }
             }
         }
     }
 }
- */
-
 
 void nc_tree::calc_bounds(float *min_bounds, float *max_bounds) noexcept {
     for (uint d = 0; d < n_dim; d++) {
@@ -128,7 +173,7 @@ uint nc_tree::determine_data_boundaries() noexcept {
     return cell_index;
  */
 
-void nc_tree::build_tree(uint n_threads) noexcept {
+void nc_tree::build_tree() noexcept {
     s_vec<float> v_eps_levels(n_level);
     s_vec<ull> v_dims_mult(n_level * n_dim);
     #pragma omp parallel for
@@ -283,22 +328,118 @@ void nc_tree::init() noexcept {
     vv_max_cell_dim.resize(n_level);
 }
 
-void nc_tree::cache_bounding_box_queries() {
-    cache_tasks();
-    is_cached = true;
-}
-
-void nc_tree::cache_tasks() noexcept {
-    /*
-        uint size = 0;
-        for (uint l = 1; l < max_level; ++l) {
-            size += vv_cell_begin[l].size();
+void nc_tree::collect_proximity_queries() noexcept {
+    std::vector<cell_meta> v_tasks;
+    std::vector<std::vector<cell_meta_pair_level>> vv_stack(n_threads);
+    d_vec<cell_meta_pair> vv_edges(n_threads);
+    uint task_size = 0;
+    #pragma omp parallel for reduction(+:task_size)
+    for (uint l = 1; l < n_level; ++l) {
+        task_size += vv_cell_begin[l].size();
+    }
+    v_tasks.reserve(task_size);
+    for (uint l = 1; l < n_level; ++l) {
+        for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
+            v_tasks.emplace_back(l,i);
         }
-        v_tasks.reserve(size);
-        for (uint l = 1; l < max_level; ++l) {
-            for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
-                v_tasks.emplace_back(l, i);
+    }
+//    std::cout << "Number of tasks: " << v_tasks.size() << std::endl;
+    #pragma omp parallel
+    {
+        uint tid = omp_get_thread_num();
+        #pragma omp for schedule(dynamic)
+        for (uint i = 0; i < v_tasks.size(); ++i) {
+            uint l = v_tasks[i].l;
+            uint c = v_tasks[i].c;
+            uint begin = vv_cell_begin[l][c];
+            for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
+                uint c1_index = vv_index_map[l][begin + c1];
+                for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                    uint c2_index = vv_index_map[l][begin + c2];
+                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * n_dim],
+                            &vv_max_cell_dim[l - 1][c1_index * n_dim],
+                            &vv_min_cell_dim[l - 1][c2_index * n_dim],
+                            &vv_max_cell_dim[l - 1][c2_index * n_dim], n_dim, e)) {
+                        vv_stack[tid].emplace_back(l - 1, c1_index, c2_index);
+                        process_pair_stack(vv_edges[tid], vv_index_map, vv_cell_begin, vv_cell_ns,
+                                vv_min_cell_dim, vv_max_cell_dim, vv_stack[tid], n_dim, e);
+                    }
+                }
             }
         }
-     */
+        vv_stack[tid].clear();
+        vv_stack[tid].shrink_to_fit();
+        // Clear up memory which is not needed anymore
+        #pragma omp for
+        for (uint l = 1; l < n_level; ++l) {
+            vv_index_map[l].clear();
+            vv_index_map[l].shrink_to_fit();
+            vv_cell_ns[l].clear();
+            vv_cell_ns[l].shrink_to_fit();
+            vv_cell_begin[l].clear();
+            vv_cell_begin[l].shrink_to_fit();
+            vv_min_cell_dim[l].clear();
+            vv_min_cell_dim[l].shrink_to_fit();
+            vv_max_cell_dim[l].clear();
+            vv_max_cell_dim[l].shrink_to_fit();
+        }
+    } // end parallel region
+    for (uint t = 0; t < vv_edges.size(); ++t) {
+        v_edges.insert(v_edges.end(), std::make_move_iterator(vv_edges[t].begin()),
+                std::make_move_iterator(vv_edges[t].end()));
+    }
 }
+
+void nc_tree::process_proximity_queries() noexcept {
+//    v_leaf_cell_np.resize(vv_cell_ns[0].size(), 0);
+    v_leaf_cell_np = vv_cell_ns[0];
+    v_leaf_cell_type.resize(v_leaf_cell_np.size(), UNKNOWN);
+    v_point_np.resize(n_coords, 0);
+
+    #pragma omp parallel
+    {
+        #pragma omp for reduction(max: max_points_in_cell)
+        for (uint i = 0; i < v_leaf_cell_np.size(); ++i) {
+            if (v_leaf_cell_np[i] > m) {
+                v_leaf_cell_type[i] = ALL_CORES;
+            }
+            if (v_leaf_cell_np[i] > max_points_in_cell) {
+                max_points_in_cell = v_leaf_cell_np[i];
+            }
+        }
+        #pragma omp barrier
+        #pragma omp for
+        for (uint i = 0; i < v_edges.size(); ++i) {
+            uint c1 = v_edges[i].c1;
+            uint c2 = v_edges[i].c2;
+            if (v_leaf_cell_np[c1] < m) {
+                #pragma omp atomic
+                v_leaf_cell_np[c1] += vv_cell_ns[0][c2];
+            }
+            if (v_leaf_cell_np[c2] < m) {
+                #pragma omp atomic
+                v_leaf_cell_np[c2] += vv_cell_ns[0][c1];
+            }
+        }
+        #pragma omp barrier
+        #pragma omp for
+        for (uint i = 0; i < v_leaf_cell_np.size(); ++i) {
+            if (v_leaf_cell_np[i] < m) {
+                assert(v_leaf_cell_type[i] == UNKNOWN);
+                v_leaf_cell_type[i] = NO_CORES;
+            }
+        }
+    }
+
+
+/*
+        std::vector<std::vector<cell_meta_3>> vv_stacks3(n_threads);
+        std::vector<std::vector<bool>> vv_range_table(n_threads);
+        std::vector<std::vector<uint>> vv_range_counts(n_threads);
+        std::vector<uint> v_leaf_cell_np(vv_cell_ns[0].size(), 0);
+        std::vector<uint> v_point_np(n, 0);
+        std::vector<uint8_t> v_cell_type(vv_cell_ns[0].size(), NC);
+        std::vector<uint8_t> v_is_core(n, 0);
+ */
+}
+

@@ -303,6 +303,37 @@ namespace nextdbscan {
         }
     }
 
+    result collect_results(nc_tree &nc) noexcept {
+        result res{0, 0, 0, nc.n_coords, new int[nc.n_coords]};
+
+        /*
+        uint sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (uint i = 0; i < v_is_core.size(); ++i) {
+            if (v_is_core[i])
+                ++sum;
+        }
+        res.core_count = sum;
+        sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (int i = 0; i < v_cluster_label.size(); ++i) {
+            if (v_cluster_label[i] == i)
+                ++sum;
+        }
+        res.clusters = sum;
+
+        uint &noise = res.noise;
+        #pragma omp parallel for reduction(+: noise)
+        for (int i = 0; i < n; i++) {
+            if (v_cluster_label[i] == UNASSIGNED) {
+                ++noise;
+            }
+        }
+         */
+        return res;
+    }
+
+    /*
     result collect_results(std::vector<uint8_t> &v_is_core,std::vector<int> &v_cluster_label, uint n) noexcept {
         result res{0, 0, 0, n, new int[n]};
 
@@ -330,6 +361,7 @@ namespace nextdbscan {
         }
         return res;
     }
+     */
 
     void read_input_csv(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
         std::ifstream is(in_file);
@@ -757,13 +789,25 @@ namespace nextdbscan {
                       " of " << total_samples << " samples." << std::endl;
         }
 
-        nc_tree nc(&v_coords[0], max_d, n, e, m);
+        nc_tree nc(&v_coords[0], max_d, n, e, m, n_threads);
         nc.init();
         measure_duration("Build tree: ", node_index == 0, [&]() -> void {
-            nc.build_tree(n_threads);
+            nc.build_tree();
         });
         next_util::print_tree_meta_data(nc);
+        measure_duration("Collect Proximity Queries: ", node_index == 0, [&]() -> void {
+            nc.collect_proximity_queries();
+        });
+        std::cout << "Number of edges: " << nc.get_no_of_edges() << std::endl;
+        measure_duration("Process Proximity Queries: ", node_index == 0, [&]() -> void {
+            nc.process_proximity_queries();
+        });
 
+        // TODO TMP
+        std::vector<uint8_t> v_is_core(n, 0);
+        std::vector<int> v_c_labels(n, UNASSIGNED);
+
+        /*
         const auto e_inner = (e / sqrtf(3));
         const float e2 = e*e;
         s_vec<float> v_min_bounds(max_d);
@@ -900,7 +944,9 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
                       << " milliseconds\n";
         }
-        return collect_results(v_is_core, v_c_labels, total_samples);
+         return collect_results(v_is_core, v_c_labels, total_samples);
+         */
+        return collect_results(nc);
     }
 
 }
