@@ -140,7 +140,7 @@ void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint
 }
 
 uint
-nextdbscan_omp::index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
+index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
         std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
         std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint max_d,
@@ -253,7 +253,7 @@ nextdbscan_omp::index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_b
     return unique_new_cells;
 }
 
-void nextdbscan_omp::calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
+void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
         s_vec<uint> &v_cell_ns, s_vec<uint> &v_index_maps,
         std::vector<std::vector<float>> &vv_min_cell_dims,
         std::vector<std::vector<float>> &vv_max_cell_dims,
@@ -298,7 +298,7 @@ void nextdbscan_omp::calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v
     }
 }
 
-void nextdbscan_omp::index_points(float *v_coords,
+void index_points(float *v_coords,
         s_vec<float> &v_eps_levels,
         s_vec<ull> &v_dims_mult,
         s_vec<float> &v_min_bounds,

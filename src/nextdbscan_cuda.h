@@ -34,7 +34,9 @@ using s_vec = thrust::host_vector<T>;
 template <class T>
 using d_vec = thrust::host_vector<thrust::host_vector<T>>;
 using t_uint_iterator = thrust::host_vector<thrust::host_vector<thrust::host_vector<uint>::iterator>>;
+#include "nc_tree.h"
 
+/*
 class nextdbscan_cuda {
 private:
 
@@ -78,5 +80,18 @@ public:
             thrust::device_vector<uint> &v_tmp,
             const uint size, const uint l, const uint max_d) noexcept;
 };
+ */
+
+void index_points(float *v_coords,
+        s_vec<float> &v_eps_levels,
+        s_vec<ull> &v_dims_mult,
+        s_vec<float> &v_min_bounds,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        uint max_d, uint n_threads,
+        uint max_levels, uint size) noexcept;
 
 #endif //NEXT_DBSCAN_NEXTDBSCAN_CUDA_H

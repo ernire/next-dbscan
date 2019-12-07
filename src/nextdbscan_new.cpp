@@ -28,11 +28,7 @@ SOFTWARE.
 #include <cstring>
 #include <cstdint>
 #include <omp.h>
-#include <numeric>
 #include <functional>
-//#define MPI_ON
-//#define CUDA_ON
-//#define HDF5_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -41,15 +37,8 @@ SOFTWARE.
 #endif
 #include "nextdbscan.h"
 #include "nc_tree.h"
-#ifdef CUDA_ON
-#include "nextdbscan_cuda.h"
-#endif
-#ifndef CUDA_ON
-#include "nextdbscan_omp.h"
-#endif
 #include "deep_io.h"
 #include "next_util.h"
-//#include "next_util.h"
 
 namespace nextdbscan {
 
@@ -305,31 +294,9 @@ namespace nextdbscan {
 
     result collect_results(nc_tree &nc) noexcept {
         result res{0, 0, 0, nc.n_coords, new int[nc.n_coords]};
-
-        /*
-        uint sum = 0;
-        #pragma omp parallel for reduction(+:sum)
-        for (uint i = 0; i < v_is_core.size(); ++i) {
-            if (v_is_core[i])
-                ++sum;
-        }
-        res.core_count = sum;
-        sum = 0;
-        #pragma omp parallel for reduction(+:sum)
-        for (int i = 0; i < v_cluster_label.size(); ++i) {
-            if (v_cluster_label[i] == i)
-                ++sum;
-        }
-        res.clusters = sum;
-
-        uint &noise = res.noise;
-        #pragma omp parallel for reduction(+: noise)
-        for (int i = 0; i < n; i++) {
-            if (v_cluster_label[i] == UNASSIGNED) {
-                ++noise;
-            }
-        }
-         */
+        res.core_count = nc.get_no_of_cores();
+        res.clusters = nc.get_no_of_clusters();
+        res.noise = nc.get_no_of_noise();
         return res;
     }
 
@@ -742,7 +709,8 @@ namespace nextdbscan {
             d_vec<float> &vv_max_cell_dim,
             const uint max_d, const uint n_threads,
             const uint max_levels, const uint n) noexcept {
-        uint size = n;
+//        uint size = n;
+        /*
 #ifdef CUDA_ON
         nextdbscan_cuda::index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map, vv_cell_begin,
                 vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels, size);
@@ -752,6 +720,7 @@ namespace nextdbscan {
                 vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, max_d, n_threads, max_levels,
                 size);
 #endif
+         */
     }
 
     void populate_tasks(d_vec<uint> &vv_cell_begin,
@@ -802,10 +771,15 @@ namespace nextdbscan {
         measure_duration("Process Proximity Queries: ", node_index == 0, [&]() -> void {
             nc.process_proximity_queries();
         });
+        measure_duration("Infer types: ", node_index == 0, [&]() -> void {
+            nc.infer_types_and_max_clusters();
+        });
 
-        // TODO TMP
-        std::vector<uint8_t> v_is_core(n, 0);
-        std::vector<int> v_c_labels(n, UNASSIGNED);
+        measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
+            nc.determine_cell_labels();
+        });
+//        std::cout << "All Cores cell cnt: " << nc.cnt_leaf_cells_of_type(ALL_CORES) << std::endl;
+//        std::cout << "No Cores cell cnt: " << nc.cnt_leaf_cells_of_type(NO_CORES) << std::endl;
 
         /*
         const auto e_inner = (e / sqrtf(3));
@@ -935,6 +909,9 @@ namespace nextdbscan {
                 }
             }
         });
+
+         return collect_results(v_is_core, v_c_labels, total_samples);
+         */
         auto time_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Total Execution Time: "
@@ -944,8 +921,6 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
                       << " milliseconds\n";
         }
-         return collect_results(v_is_core, v_c_labels, total_samples);
-         */
         return collect_results(nc);
     }
 

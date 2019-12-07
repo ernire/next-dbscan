@@ -23,8 +23,14 @@ SOFTWARE.
 #define NEXT_DBSCAN_NEXTDBSCAN_OMP_H
 
 #include <vector>
-#include "nextdbscan.h"
+template <class T>
+using s_vec = std::vector<T>;
+template <class T>
+using d_vec = std::vector<std::vector<T>>;
+using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
+#include "nc_tree.h"
 
+/*
 template <class T>
 using s_vec = std::vector<T>;
 template <class T>
@@ -60,6 +66,18 @@ public:
             uint max_d, uint n_threads,
             uint max_levels, uint n) noexcept;
 };
+ */
+void index_points(float *v_coords,
+        s_vec<float> &v_eps_levels,
+        s_vec<ull> &v_dims_mult,
+        s_vec<float> &v_min_bounds,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        uint max_d, uint n_threads,
+        uint max_levels, uint n) noexcept;
 
 
 #endif //NEXT_DBSCAN_NEXTDBSCAN_OMP_H

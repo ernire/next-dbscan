@@ -19,22 +19,34 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
-
 #ifndef NEXT_DBSCAN_NC_TREE_H
 #define NEXT_DBSCAN_NC_TREE_H
 
 #include <vector>
 #include <cmath>
+#include "nextdbscan.h"
+#ifdef CUDA_ON
+#include "nextdbscan_cuda.h"
+#endif
+#ifndef CUDA_ON
+#include "nextdbscan_omp.h"
+#endif
 
 typedef unsigned int uint;
 typedef unsigned long long ull;
 
+//static const int UNASSIGNED = -1;
+
 // TODO CUDA
-template <class T>
-using s_vec = std::vector<T>;
-template <class T>
-using d_vec = std::vector<std::vector<T>>;
-using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
+//#ifdef CUDA_ON
+//#endif
+//#ifndef CUDA_ON
+//template <class T>
+//using s_vec = std::vector<T>;
+//template <class T>
+//using d_vec = std::vector<std::vector<T>>;
+//using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
+//#endif
 
 static const int UNDEFINED = -1;
 static const uint8_t UNKNOWN = 0;
@@ -45,21 +57,6 @@ static const uint8_t ALL_CORES = 0x3;
 static const uint8_t NOT_CONNECTED = 0x1;
 static const uint8_t FULLY_CONNECTED = 0x2;
 static const uint8_t PARTIALLY_CONNECTED = 0x2;
-/*
-        std::vector<std::vector<cell_meta_3>> vv_stacks3(n_threads);
-        std::vector<std::vector<bool>> vv_range_table(n_threads);
-        std::vector<std::vector<uint>> vv_range_counts(n_threads);
-        std::vector<uint> v_leaf_cell_np(vv_cell_ns[0].size(), 0);
-        std::vector<uint> v_point_np(n, 0);
-        std::vector<uint8_t> v_cell_type(vv_cell_ns[0].size(), NC);
-        std::vector<uint8_t> v_is_core(n, 0);
- */
-
-struct cell_meta_pair {
-    uint c1, c2;
-
-    cell_meta_pair(uint c1, uint c2) : c1(c1), c2(c2) {}
-};
 
 class nc_tree {
 private:
@@ -73,11 +70,13 @@ private:
     d_vec<uint> vv_cell_ns;
     d_vec<float> vv_min_cell_dim;
     d_vec<float> vv_max_cell_dim;
-    s_vec<cell_meta_pair> v_edges;
+    s_vec<uint> v_edges;
     uint max_points_in_cell = 0;
-    std::vector<uint> v_leaf_cell_np;
-    std::vector<uint> v_point_np;
-    std::vector<uint8_t> v_leaf_cell_type;
+    s_vec<uint> v_leaf_cell_np;
+    s_vec<uint> v_point_np;
+    s_vec<uint8_t> v_leaf_cell_type;
+    s_vec<uint8_t> v_is_core;
+    s_vec<int> v_leaf_cell_labels;
 
     void calc_bounds(float *min_bounds, float *max_bounds) noexcept;
 
@@ -98,13 +97,17 @@ public:
         : v_coords(v_coords), n_dim(n_dim), n_coords(n_coords), m(m), e(e), n_threads(n_threads), e2(e*e),
         e_inner((e / sqrtf(3))) {}
 
-    void init() noexcept;
-
     void build_tree() noexcept;
 
     void collect_proximity_queries() noexcept;
 
+    void init() noexcept;
+
+    void infer_types_and_max_clusters() noexcept;
+
     void process_proximity_queries() noexcept;
+
+    void determine_cell_labels() noexcept;
 
     int get_no_of_cells(uint tree_level) noexcept {
         if (tree_level > n_level)
@@ -112,8 +115,51 @@ public:
         return vv_cell_ns[tree_level].size();
     }
 
+    int cnt_leaf_cells_of_type(const uint type) {
+        if (n_level == 0 || v_leaf_cell_type.empty())
+            return UNDEFINED;
+        uint cnt = 0;
+        #pragma omp parallel for reduction(+:cnt)
+        for (uint i = 0; i < v_leaf_cell_type.size(); ++i) {
+            if (v_leaf_cell_type[i] == type)
+                ++cnt;
+        }
+        return cnt;
+    }
+
     uint get_no_of_edges() noexcept {
-        return v_edges.size();
+        return v_edges.size() / 2;
+    }
+
+    uint get_no_of_cores() noexcept {
+        uint sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (uint i = 0; i < v_is_core.size(); ++i) {
+            if (v_is_core[i])
+                ++sum;
+        }
+        return sum;
+    }
+
+    uint get_no_of_clusters() noexcept {
+        uint sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (int i = 0; i < v_leaf_cell_labels.size(); ++i) {
+            if (v_leaf_cell_labels[i] == i)
+                ++sum;
+        }
+        return sum;
+    }
+
+    uint get_no_of_noise() noexcept {
+        uint sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (int i = 0; i < v_leaf_cell_labels.size(); ++i) {
+            // TODO replace with const value from nextdbscan.h
+            if (v_leaf_cell_labels[i] == -1)
+                ++sum;
+        }
+        return sum;
     }
 
 };
