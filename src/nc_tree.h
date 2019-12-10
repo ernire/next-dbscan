@@ -35,19 +35,6 @@ SOFTWARE.
 typedef unsigned int uint;
 typedef unsigned long long ull;
 
-//static const int UNASSIGNED = -1;
-
-// TODO CUDA
-//#ifdef CUDA_ON
-//#endif
-//#ifndef CUDA_ON
-//template <class T>
-//using s_vec = std::vector<T>;
-//template <class T>
-//using d_vec = std::vector<std::vector<T>>;
-//using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
-//#endif
-
 static const int UNDEFINED = -1;
 static const uint8_t UNKNOWN = 0;
 static const uint8_t NO_CORES = 0x1;
@@ -77,6 +64,13 @@ private:
     s_vec<uint8_t> v_leaf_cell_type;
     s_vec<uint8_t> v_is_core;
     s_vec<int> v_leaf_cell_labels;
+#ifdef CUDA_ON
+    thrust::device_vector<float> v_gpu_coords;
+    thrust::device_vector<uint> v_gpu_edges;
+    thrust::device_vector<int> v_gpu_point_labels;
+    thrust::device_vector<uint8_t> v_gpu_is_core;
+    thrust::device_vector<uint8_t> v_gpu_leaf_cell_type;
+#endif
 
     void calc_bounds(float *min_bounds, float *max_bounds) noexcept;
 
@@ -84,6 +78,8 @@ private:
             s_vec<float> &max_bounds, float e_inner) noexcept;
 
     uint determine_data_boundaries() noexcept;
+
+    void index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept;
 
 public:
     uint n_level = 0;
