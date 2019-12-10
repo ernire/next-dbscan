@@ -43,7 +43,9 @@ static const uint8_t ALL_CORES = 0x3;
 
 static const uint8_t NOT_CONNECTED = 0x1;
 static const uint8_t FULLY_CONNECTED = 0x2;
-static const uint8_t PARTIALLY_CONNECTED = 0x2;
+static const uint8_t PARTIALLY_CONNECTED = 0x3;
+static const uint8_t NOT_CORE_CONNECTED = 0x4;
+static const uint8_t CORE_CONNECTED = 0x5;
 
 class nc_tree {
 private:
@@ -58,12 +60,13 @@ private:
     d_vec<float> vv_min_cell_dim;
     d_vec<float> vv_max_cell_dim;
     s_vec<uint> v_edges;
+    s_vec<uint8_t> v_edge_conn;
     uint max_points_in_cell = 0;
     s_vec<uint> v_leaf_cell_np;
     s_vec<uint> v_point_np;
     s_vec<uint8_t> v_leaf_cell_type;
     s_vec<uint8_t> v_is_core;
-    s_vec<int> v_leaf_cell_labels;
+    s_vec<int> v_point_labels;
 #ifdef CUDA_ON
     thrust::device_vector<float> v_gpu_coords;
     thrust::device_vector<uint> v_gpu_edges;
@@ -140,8 +143,8 @@ public:
     uint get_no_of_clusters() noexcept {
         uint sum = 0;
         #pragma omp parallel for reduction(+:sum)
-        for (int i = 0; i < v_leaf_cell_labels.size(); ++i) {
-            if (v_leaf_cell_labels[i] == i)
+        for (int i = 0; i < v_point_labels.size(); ++i) {
+            if (v_point_labels[i] == i)
                 ++sum;
         }
         return sum;
@@ -150,9 +153,9 @@ public:
     uint get_no_of_noise() noexcept {
         uint sum = 0;
         #pragma omp parallel for reduction(+:sum)
-        for (int i = 0; i < v_leaf_cell_labels.size(); ++i) {
+        for (int i = 0; i < v_point_labels.size(); ++i) {
             // TODO replace with const value from nextdbscan.h
-            if (v_leaf_cell_labels[i] == -1)
+            if (v_point_labels[i] == -1)
                 ++sum;
         }
         return sum;

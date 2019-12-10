@@ -689,6 +689,9 @@ void nc_tree::process_proximity_queries() noexcept {
             thrust::raw_pointer_cast(&v_gpu_begin[0]),
             thrust::raw_pointer_cast(&v_gpu_cell_ns[0]),
             v_gpu_begin.size());
+
+    cudaDeviceSynchronize();
+    print_cuda_memory_usage();
     /*
     thrust::transform(v_gpu_leaf_cell_type.begin(),
             v_gpu_leaf_cell_type.end(),

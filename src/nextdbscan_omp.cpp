@@ -370,7 +370,7 @@ void update_points(s_vec<uint> &v_index_map_level, s_vec<uint> &v_cell_nps,
     }
 }
 
-void update_cell_pair_nn(s_vec<uint> &v_index_map_level, const uint size1, const uint size2,
+bool update_cell_pair_nn(s_vec<uint> &v_index_map_level, const uint size1, const uint size2,
         std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps, std::vector<bool> &v_range_table,
         std::vector<uint> &v_range_count,
         const uint c1, const uint begin1, const uint c2, const uint begin2,
@@ -393,9 +393,10 @@ void update_cell_pair_nn(s_vec<uint> &v_index_map_level, const uint size1, const
     if (is_update2) {
         update_points(v_index_map_level, v_cell_nps, v_point_nps, &v_range_count[size1], size2, begin2, c2);
     }
+    return (is_update1 || is_update2);
 }
 
-void process_pair_proximity(const float *v_coords,
+uint8_t process_pair_proximity(const float *v_coords,
         s_vec<uint> &v_index_maps,
         s_vec<uint> &v_point_nps,
         s_vec<uint> &v_cell_ns,
@@ -404,14 +405,11 @@ void process_pair_proximity(const float *v_coords,
         s_vec<uint> &v_cell_nps,
         const uint max_d, const float e2, const uint m,
         const uint c1, const uint begin1, const uint c2, const uint begin2) noexcept {
-
+    uint8_t are_connected = NOT_CONNECTED;
     uint size1 = v_cell_ns[c1];
     uint size2 = v_cell_ns[c2];
     uint hits = fill_range_table(v_coords, v_index_maps, size1, size2,
             v_range_table, begin1, begin2, max_d, e2);
-    if (hits == 0) {
-        return;
-    }
     if (hits == size1*size2) {
         if (v_cell_nps[c1] < m) {
             #pragma omp atomic
@@ -421,11 +419,15 @@ void process_pair_proximity(const float *v_coords,
             #pragma omp atomic
             v_cell_nps[c2] += v_cell_ns[c1];
         }
-    } else {
-        update_cell_pair_nn(v_index_maps, size1, size2, v_cell_nps, v_point_nps, v_range_table,
+        are_connected = FULLY_CONNECTED;
+    } else if (hits > 0) {
+        if (update_cell_pair_nn(v_index_maps, size1, size2, v_cell_nps, v_point_nps, v_range_table,
                 v_range_cnt, c1, begin1, c2, begin2, v_cell_nps[c1] < m,
-                v_cell_nps[c2] < m);
+                v_cell_nps[c2] < m)) {
+            are_connected = PARTIALLY_CONNECTED;
+        }
     }
+    return are_connected;
 }
 
 inline void update_to_ac(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
@@ -469,9 +471,9 @@ void nc_tree::infer_types_and_max_clusters() noexcept {
 //    std::cout << "CHECKPOINT #1: " << v_leaf_cell_np.size() << " , " << v_leaf_cell_type.size() << std::endl;
     uint max_clusters = 0;
     v_is_core.resize(n_coords, UNKNOWN);
-    v_leaf_cell_labels.resize(n_coords, UNASSIGNED);
+    v_point_labels.resize(n_coords, UNASSIGNED);
 //    std::cout << "CHECKPOINT #2" << std::endl;
-#pragma omp parallel for reduction(+: max_clusters)
+    #pragma omp parallel for reduction(+: max_clusters)
     for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
 //        std::cout << "LOOP #" << i << std::endl;
         update_type(vv_index_map[0], vv_cell_ns[0], vv_cell_begin[0],
@@ -484,13 +486,13 @@ void nc_tree::infer_types_and_max_clusters() noexcept {
             for (uint j = 0; j < vv_cell_ns[0][i]; ++j) {
                 uint p = vv_index_map[0][begin + j];
                 if (core_p != UNASSIGNED) {
-                    v_leaf_cell_labels[p] = core_p;
+                    v_point_labels[p] = core_p;
                 } else if (v_is_core[p]) {
                     core_p = p;
-                    v_leaf_cell_labels[core_p] = core_p;
+                    v_point_labels[core_p] = core_p;
                     for (uint k = 0; k < j; ++k) {
                         p = vv_index_map[0][begin + k];
-                        v_leaf_cell_labels[p] = core_p;
+                        v_point_labels[p] = core_p;
                     }
                 }
             }
@@ -506,6 +508,7 @@ void nc_tree::process_proximity_queries() noexcept {
     v_leaf_cell_np = vv_cell_ns[0];
     v_leaf_cell_type.resize(v_leaf_cell_np.size(), UNKNOWN);
     v_point_np.resize(n_coords, 0);
+    v_edge_conn.resize(v_edges.size()/2, UNKNOWN);
 
 //    uint sum = 0;
 //    for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
@@ -542,8 +545,8 @@ void nc_tree::process_proximity_queries() noexcept {
             }
         }
     }
-    std::cout << "All Cores cell cnt: " << cnt_leaf_cells_of_type(ALL_CORES) << std::endl;
-    std::cout << "No Cores cell cnt: " << cnt_leaf_cells_of_type(NO_CORES) << std::endl;
+//    std::cout << "All Cores cell cnt: " << cnt_leaf_cells_of_type(ALL_CORES) << std::endl;
+//    std::cout << "No Cores cell cnt: " << cnt_leaf_cells_of_type(NO_CORES) << std::endl;
     v_leaf_cell_np = vv_cell_ns[0];
     std::vector<std::vector<bool>> vv_range_table(n_threads);
     std::vector<std::vector<uint>> vv_range_counts(n_threads);
@@ -561,13 +564,15 @@ void nc_tree::process_proximity_queries() noexcept {
                 continue;
             }
             if (v_leaf_cell_type[c1] == NO_CORES && v_leaf_cell_type[c2] == NO_CORES) {
+                v_edge_conn[i/2] = NOT_CONNECTED;
                 continue;
             }
             uint begin1 = vv_cell_begin[0][c1];
             uint begin2 = vv_cell_begin[0][c2];
-            process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
+            uint8_t are_connected = process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
                     vv_cell_ns[0], vv_range_table[tid], vv_range_counts[tid], v_leaf_cell_np,
                     n_dim, e2, m, c1, begin1, c2, begin2);
+            v_edge_conn[i/2] = are_connected;
         }
     }
 }
