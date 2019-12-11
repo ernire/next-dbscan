@@ -47,6 +47,8 @@ static const uint8_t PARTIALLY_CONNECTED = 0x3;
 static const uint8_t NOT_CORE_CONNECTED = 0x4;
 static const uint8_t CORE_CONNECTED = 0x5;
 
+static const int ROOT_CLUSTER = INT32_MAX;
+
 class nc_tree {
 private:
     float *v_coords;
@@ -73,11 +75,15 @@ private:
     thrust::device_vector<int> v_gpu_point_labels;
     thrust::device_vector<uint8_t> v_gpu_is_core;
     thrust::device_vector<uint8_t> v_gpu_leaf_cell_type;
+    thrust::device_vector<uint> v_gpu_index;
+    thrust::device_vector<uint> v_gpu_begin;
+    thrust::device_vector<uint> v_gpu_cell_ns;
+
 #endif
 
     void calc_bounds(float *min_bounds, float *max_bounds) noexcept;
 
-    void calc_dims_mult(ull *dims_mult, uint max_d, s_vec<float> &min_bounds,
+    static void calc_dims_mult(ull *dims_mult, uint max_d, s_vec<float> &min_bounds,
             s_vec<float> &max_bounds, float e_inner) noexcept;
 
     uint determine_data_boundaries() noexcept;
@@ -102,7 +108,7 @@ public:
 
     void init() noexcept;
 
-    void infer_types_and_max_clusters() noexcept;
+    void infer_types() noexcept;
 
     void process_proximity_queries() noexcept;
 

@@ -59,86 +59,15 @@ inline bool is_in_reach(const float *min1, const float *max1, const float *min2,
     return true;
 }
 
-inline int get_label(s_vec<int> &v_c_labels, uint p) noexcept {
-    int label = v_c_labels[p];
-//    bool flatten = false;
-    while (label != v_c_labels[label]) {
-        label = v_c_labels[label];
-//        flatten = true;
-    }
-//    if (flatten) {
-//        v_c_labels[p] = label;
-//    }
-    return label;
-}
-
 // TODO remove this when not needed anymore
 inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
     float tmp = 0;
-#pragma unroll
+    #pragma unroll
     for (int d = 0; d < max_d; d++) {
         float tmp2 = coord1[d] - coord2[d];
         tmp += tmp2 * tmp2;
     }
     return tmp <= e2;
-}
-
-void process_pair_labels(const float *v_coords,
-        s_vec<int> &v_c_labels,
-        d_vec<uint> &vv_cell_ns,
-        d_vec<uint> &vv_index_maps,
-        s_vec<uint8_t> &v_cell_types,
-        s_vec<uint8_t> &v_is_core,
-        const uint c1, const uint c2, const uint l, const uint begin1, const uint begin2,
-        const uint max_d, const float e2) noexcept {
-    // Do both cells have cores ?
-    if (v_cell_types[c1] != NO_CORES && v_cell_types[c2] != NO_CORES) {
-        for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-            uint p1 = vv_index_maps[l][begin1 + k1];
-            if (!v_is_core[p1]) {
-                continue;
-            }
-            int label1 = get_label(v_c_labels, p1);
-            for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                uint p2 = vv_index_maps[l][begin2 + k2];
-                if (!v_is_core[p2]) {
-                    continue;
-                }
-                int label2 = get_label(v_c_labels, p2);
-                if (label1 != label2) {
-                    if (dist_leq(&v_coords[p1 * max_d],
-                            &v_coords[p2 * max_d], max_d, e2)) {
-                        if (label1 < label2)
-                            v_c_labels[label2] = label1;
-                        else
-                            v_c_labels[label1] = label2;
-                    }
-                }
-            }
-        }
-    } else {
-        // one NC one SC or AC
-        for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-            uint p1 = vv_index_maps[l][begin1 + k1];
-            if (!v_is_core[p1] && v_c_labels[p1] != UNASSIGNED)
-                continue;
-            for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                uint p2 = vv_index_maps[l][begin2 + k2];
-                if (!v_is_core[p2] && v_c_labels[p2] != UNASSIGNED)
-                    continue;
-                if (v_is_core[p1]) {
-                    if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                        v_c_labels[p2] = v_c_labels[p1];
-                    }
-                } else if (v_is_core[p2]) {
-                    if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                        v_c_labels[p1] = v_c_labels[p2];
-                        k2 = vv_cell_ns[l][c2];
-                    }
-                }
-            }
-        }
-    }
 }
 
 void process_pair_stack(s_vec<uint> &v_edges,
@@ -160,21 +89,6 @@ void process_pair_stack(s_vec<uint> &v_edges,
             // CUDA doesn't support emplace_back
             v_edges.push_back(c1);
             v_edges.push_back(c2);
-            /*
-            if (is_proximity_cnt) {
-                if (v_leaf_cell_np[c1] < m || v_leaf_cell_np[c2] < m) {
-                    process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
-                            vv_cell_ns[0], v_range_table, v_range_counts, v_leaf_cell_np,
-                            max_d, e2, m, c1, begin1, c2, begin2);
-                }
-            } else {
-                if (v_cell_types[c1] != NC || v_cell_types[c2] != NC) {
-                    process_pair_labels(v_coords,v_c_labels, vv_cell_ns,
-                            vv_index_map, v_cell_types, v_is_core, c1, c2, l,
-                            begin1, begin2, max_d, e2);
-                }
-            }
-             */
         } else {
             for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
                 uint c1_next = vv_index_map[l][begin1 + k1];
@@ -257,9 +171,6 @@ void nc_tree::build_tree() noexcept {
         calc_dims_mult(&v_dims_mult[l * n_dim], n_dim, v_min_bounds, v_max_bounds, v_eps_levels[l]);
     }
     index_points(v_eps_levels, v_dims_mult);
-//    index_points(v_coords, v_eps_levels, v_dims_mult, v_min_bounds, vv_index_map,
-//            vv_cell_begin,vv_cell_ns, vv_min_cell_dim, vv_max_cell_dim, n_dim, n_threads, n_level,
-//            n_coords);
 }
 
 /*
@@ -463,168 +374,5 @@ void nc_tree::collect_proximity_queries() noexcept {
         v_edges.insert(v_edges.end(), std::make_move_iterator(vv_edges[t].begin()),
                 std::make_move_iterator(vv_edges[t].end()));
     }
-}
-
-/*
-void _atomic_op(T* address, T value, O op) {
-    T previous = __sync_fetch_and_add(address, 0);
-
-    while (op(value, previous)) {
-        if  (__sync_bool_compare_and_swap(address, previous, value)) {
-            break;
-        } else {
-            previous = __sync_fetch_and_add(address, 0);
-        }
-    }
-}
- */
-//void atomic_min(uint *p_val, uint val) {
-//    uint prev = __sync_fetch_and_add(p_val, 0);
-//}
-
-bool are_core_connected(const float *v_coords, s_vec<uint> &v_index_map, s_vec<uint> &v_cell_begin,
-        s_vec<uint> &v_cell_ns, s_vec<uint8_t> &v_is_core,
-        const uint c1, const uint c2, const uint n_dim, const float e2) {
-    uint begin1 = v_cell_begin[c1];
-    uint begin2 = v_cell_begin[c2];
-    for (uint k1 = 0; k1 < v_cell_ns[c1]; ++k1) {
-        uint p1 = v_index_map[begin1 + k1];
-        if (!v_is_core[p1]) {
-            continue;
-        }
-        for (uint k2 = 0; k2 < v_cell_ns[c2]; ++k2) {
-            uint p2 = v_index_map[begin2 + k2];
-            if (!v_is_core[p2]) {
-                continue;
-            }
-            if (dist_leq(&v_coords[p1 * n_dim],
-                    &v_coords[p2 * n_dim], n_dim, e2)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-void nc_tree::determine_cell_labels() noexcept {
-
-    std::vector<int> v_local_min_labels(vv_cell_begin[0].size(), INT32_MAX);
-
-    #pragma omp parallel for
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
-        if (v_leaf_cell_type[i] == NO_CORES)
-            v_local_min_labels[i] = UNASSIGNED;
-    }
-
-    #pragma omp parallel for schedule(guided)
-    for (uint i = 0; i < v_edges.size(); i += 2) {
-        int c1 = v_edges[i];
-        int c2 = v_edges[i+1];
-        int c_lower, c_higher;
-        auto conn = v_edge_conn[i/2];
-        if (conn == NOT_CONNECTED) {
-            continue;
-        }
-        if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
-            c_lower = (c1 < c2)? c1 : c2;
-            c_higher = (c1 < c2)? c2 : c1;
-            if (v_local_min_labels[c_higher] <= c_lower) {
-                continue;
-            }
-            if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
-                // Find out if smaller than current
-                if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0], vv_cell_ns[0],
-                        v_is_core, c1, c2, n_dim, e2)) {
-                    v_edge_conn[i/2] = CORE_CONNECTED;
-                    v_local_min_labels[c_higher] = c_lower;
-                } else {
-                    v_edge_conn[i/2] = NOT_CORE_CONNECTED;
-                }
-            } else if (conn == FULLY_CONNECTED) {
-                // We know they are connected
-                v_local_min_labels[c_higher] = c_lower;
-            }
-
-        }
-    }
-
-    // flatten
-    #pragma omp parallel for schedule(guided)
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
-        if (v_local_min_labels[i] == INT32_MAX || v_local_min_labels[i] == UNASSIGNED)
-            continue;
-        uint label = v_local_min_labels[i];
-        bool update = false;
-        while (v_local_min_labels[label] != INT32_MAX) {
-            label = v_local_min_labels[label];
-            update = true;
-        }
-        if (update)
-            v_local_min_labels[i] = label;
-    }
-
-    std::cout << "CONNECT FINAL" << std::endl;
-    #pragma omp parallel for schedule(guided)
-    for (uint i = 0; i < v_edges.size(); i += 2) {
-        uint c1 = v_edges[i];
-        uint c2 = v_edges[i+1];
-        uint label1, label2;
-        auto conn = v_edge_conn[i/2];
-        if (conn == NOT_CONNECTED) {
-            continue;
-        }
-        if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
-            if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
-                if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0], vv_cell_ns[0],
-                        v_is_core, c1, c2, n_dim, e2)) {
-                    v_edge_conn[i/2] = CORE_CONNECTED;
-                } else {
-                    v_edge_conn[i/2] = NOT_CORE_CONNECTED;
-                }
-                conn = v_edge_conn[i/2];
-            }
-            if (conn == NOT_CORE_CONNECTED) {
-                continue;
-            }
-            label1 = c1;
-            while (v_local_min_labels[label1] != INT32_MAX) {
-                label1 = v_local_min_labels[label1];
-            }
-            label2 = c2;
-            while (v_local_min_labels[label2] != INT32_MAX) {
-                label2 = v_local_min_labels[label2];
-            }
-            if (label1 != label2) {
-                if (label1 < label2) {
-                    v_local_min_labels[label2] = label1;
-                } else {
-                    v_local_min_labels[label1] = label2;
-                }
-            }
-        }
-    }
-    uint sum = 0;
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
-        if (v_local_min_labels[i] == INT32_MAX) {
-            ++sum;
-        }
-    }
-    std::cout << "cluster sum2: " << sum << std::endl;
-
-//    std::cout  << "cnts: " << cnt1 << " : " << cnt2 << std::endl;
-    /*
-    #pragma omp parallel for schedule(dynamic, 8)
-    for (uint i = 0; i < v_edges.size(); i += 2) {
-        uint c1 = v_edges[i];
-        uint c2 = v_edges[i+1];
-        if (v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES) {
-            // TODO l is always 0
-            uint begin1 = vv_cell_begin[0][c1];
-            uint begin2 = vv_cell_begin[0][c2];
-            process_pair_labels(v_coords, v_point_labels, vv_cell_ns, vv_index_map, v_leaf_cell_type,
-                    v_is_core, c1, c2, 0, begin1, begin2, n_dim, e2);
-        }
-    }
-     */
 }
 
