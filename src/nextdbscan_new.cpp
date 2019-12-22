@@ -56,94 +56,6 @@ namespace nextdbscan {
         }
     }
 
-    /*
-    inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
-        float tmp = 0;
-        #pragma unroll
-        for (int d = 0; d < max_d; d++) {
-            float tmp2 = coord1[d] - coord2[d];
-            tmp += tmp2 * tmp2;
-        }
-        return tmp <= e2;
-    }
-
-    inline bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
-            const uint max_d, const float e) noexcept {
-        for (uint d = 0; d < max_d; ++d) {
-            if ((min2[d] > (max1[d] + e) || min2[d] < (min1[d] - e)) &&
-                (min1[d] > (max2[d] + e) || min1[d] < (min2[d] - e)) &&
-                (max2[d] > (max1[d] + e) || max2[d] < (min1[d] - e)) &&
-                (max1[d] > (max2[d] + e) || max1[d] < (min2[d] - e))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    inline void update_to_ac(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
-            s_vec<uint> &v_cell_begin, std::vector<uint8_t> &is_core, std::vector<uint8_t> &v_types,
-            const uint c) noexcept {
-        v_types[c] = AC;
-        uint begin = v_cell_begin[c];
-        for (uint j = 0; j < v_cell_ns[c]; ++j) {
-            is_core[v_index_maps[begin + j]] = 1;
-        }
-    }
-
-    void update_type(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
-            s_vec<uint> &v_cell_begin, std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps,
-            std::vector<uint8_t> &is_core, std::vector<uint8_t> &v_types, const uint c, const uint m) noexcept {
-        if (v_types[c] == AC) {
-            return;
-        }
-        if (v_cell_nps[c] >= m) {
-            update_to_ac(v_index_maps, v_cell_ns, v_cell_begin, is_core, v_types, c);
-        }
-        bool all_cores = true;
-        bool some_cores = false;
-        uint begin = v_cell_begin[c];
-        for (uint j = 0; j < v_cell_ns[c]; ++j) {
-            uint p = v_index_maps[begin + j];
-            if (is_core[p])
-                continue;
-            if (v_cell_nps[c] + v_point_nps[p] >= m) {
-                is_core[p] = 1;
-                some_cores = true;
-            } else {
-                all_cores = false;
-            }
-        }
-        if (all_cores) {
-            v_types[c] = AC;
-        } else if (some_cores) {
-            v_types[c] = SC;
-        }
-    }
-
-    void update_points(s_vec<uint> &v_index_map_level, std::vector<uint> &v_cell_nps,
-            std::vector<uint> &v_point_nps, uint *v_range_cnt, const uint size, const uint begin,
-            const uint c) noexcept {
-        uint min_change = INT32_MAX;
-        for (uint k = 0; k < size; ++k) {
-            if (v_range_cnt[k] < min_change)
-                min_change = v_range_cnt[k];
-        }
-        if (min_change > 0) {
-            #pragma omp atomic
-            v_cell_nps[c] += min_change;
-        }
-        for (uint k = 0; k < size; ++k) {
-            if (min_change > 0)
-                v_range_cnt[k] -= min_change;
-            if (v_range_cnt[k] > 0) {
-                uint p = v_index_map_level[begin + k];
-                #pragma omp atomic
-                v_point_nps[p] += v_range_cnt[k];
-            }
-        }
-    }
-     */
-
     result collect_results(nc_tree &nc) noexcept {
         result res{0, 0, 0, nc.n_coords, new int[nc.n_coords]};
         res.core_count = nc.get_no_of_cores();
@@ -247,13 +159,22 @@ namespace nextdbscan {
 
     result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
             const uint node_index, const uint n_nodes) noexcept {
+
+
+//        #pragma omp parallel
+//        {
+//            int thread_num = omp_get_thread_num();
+//            int cpu_num = sched_getcpu();
+//            printf("Thread %3d is running on CPU %3d\n", thread_num, cpu_num);
+//        }
+
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_dynamic(0);
         omp_set_num_threads(n_threads);
         uint n, max_d, total_samples;
         s_vec<float> v_coords;
         if (node_index == 0) {
-            std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " nodes." << std::endl;
+            std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " node(s)." << std::endl;
         }
         measure_duration("Input Read: ", node_index == 0, [&]() -> void {
             total_samples = read_input(in_file, v_coords, n, max_d, n_nodes, node_index);
@@ -269,7 +190,7 @@ namespace nextdbscan {
         measure_duration("Build tree: ", node_index == 0, [&]() -> void {
             nc.build_tree();
         });
-        next_util::print_tree_meta_data(nc);
+//        next_util::print_tree_meta_data(nc);
         measure_duration("Collect Proximity Queries: ", node_index == 0, [&]() -> void {
             nc.collect_proximity_queries();
         });
@@ -284,9 +205,6 @@ namespace nextdbscan {
         measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
             nc.determine_cell_labels();
         });
-//        std::cout << "All Cores cell cnt: " << nc.cnt_leaf_cells_of_type(ALL_CORES) << std::endl;
-//        std::cout << "No Cores cell cnt: " << nc.cnt_leaf_cells_of_type(NO_CORES) << std::endl;
-
         auto time_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Total Execution Time: "

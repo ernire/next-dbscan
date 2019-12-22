@@ -34,77 +34,19 @@ SOFTWARE.
 #endif
 #include "next_util.h"
 
-struct cell_meta {
-    uint l, c;
-
-    cell_meta(uint l, uint c) : l(l), c(c) {}
-};
-
-struct cell_meta_pair_level {
-    uint l, c1, c2;
-
-    cell_meta_pair_level(uint l, uint c1, uint c2) : l(l), c1(c1), c2(c2) {}
-};
-
-inline bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
-        const uint max_d, const float e) noexcept {
-    for (uint d = 0; d < max_d; ++d) {
-        if ((min2[d] > (max1[d] + e) || min2[d] < (min1[d] - e)) &&
-            (min1[d] > (max2[d] + e) || min1[d] < (min2[d] - e)) &&
-            (max2[d] > (max1[d] + e) || max2[d] < (min1[d] - e)) &&
-            (max1[d] > (max2[d] + e) || max1[d] < (min2[d] - e))) {
-            return false;
-        }
-    }
-    return true;
-}
 
 // TODO remove this when not needed anymore
-inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
-    float tmp = 0;
-    #pragma unroll
-    for (int d = 0; d < max_d; d++) {
-        float tmp2 = coord1[d] - coord2[d];
-        tmp += tmp2 * tmp2;
-    }
-    return tmp <= e2;
-}
+//inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
+//    float tmp = 0;
+//    #pragma unroll
+//    for (int d = 0; d < max_d; d++) {
+//        float tmp2 = coord1[d] - coord2[d];
+//        tmp += tmp2 * tmp2;
+//    }
+//    return tmp <= e2;
+//}
 
-void process_pair_stack(s_vec<uint> &v_edges,
-        d_vec<uint> &vv_index_map,
-        d_vec<uint> &vv_cell_begin,
-        d_vec<uint> &vv_cell_ns,
-        d_vec<float> &vv_min_cell_dim,
-        d_vec<float> &vv_max_cell_dim,
-        std::vector<cell_meta_pair_level> &v_stack,
-        const uint n_dim, const float e) noexcept {
-    while (!v_stack.empty()) {
-        uint l = v_stack.back().l;
-        uint c1 = v_stack.back().c1;
-        uint c2 = v_stack.back().c2;
-        v_stack.pop_back();
-        uint begin1 = vv_cell_begin[l][c1];
-        uint begin2 = vv_cell_begin[l][c2];
-        if (l == 0) {
-            // CUDA doesn't support emplace_back
-            v_edges.push_back(c1);
-            v_edges.push_back(c2);
-        } else {
-            for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
-                uint c1_next = vv_index_map[l][begin1 + k1];
-                for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
-                    uint c2_next = vv_index_map[l][begin2 + k2];
-                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_next * n_dim],
-                            &vv_max_cell_dim[l - 1][c1_next * n_dim],
-                            &vv_min_cell_dim[l - 1][c2_next * n_dim],
-                            &vv_max_cell_dim[l - 1][c2_next * n_dim], n_dim, e)) {
-                        v_stack.emplace_back(l - 1, c1_next, c2_next);
-                    }
-                }
-            }
-        }
-    }
-}
+
 
 void nc_tree::calc_bounds(float *min_bounds, float *max_bounds) noexcept {
     for (uint d = 0; d < n_dim; d++) {
@@ -309,70 +251,5 @@ void nc_tree::init() noexcept {
     vv_max_cell_dim.resize(n_level);
 }
 
-void nc_tree::collect_proximity_queries() noexcept {
-    std::vector<cell_meta> v_tasks;
-    std::vector<std::vector<cell_meta_pair_level>> vv_stack(n_threads);
-    d_vec<uint> vv_edges(n_threads);
-    uint task_size = 0;
-    #pragma omp parallel for reduction(+:task_size)
-    for (uint l = 1; l < n_level; ++l) {
-        task_size += vv_cell_begin[l].size();
-    }
-    v_tasks.reserve(task_size);
-    for (uint l = 1; l < n_level; ++l) {
-        for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
-            v_tasks.emplace_back(l,i);
-        }
-    }
-    #pragma omp parallel
-    {
-        uint tid = omp_get_thread_num();
-        vv_edges[tid].reserve(v_tasks.size() / n_threads);
-        #pragma omp for schedule(guided)
-        for (uint i = 0; i < v_tasks.size(); ++i) {
-            uint l = v_tasks[i].l;
-            uint c = v_tasks[i].c;
-            uint begin = vv_cell_begin[l][c];
-            for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
-                uint c1_index = vv_index_map[l][begin + c1];
-                for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
-                    uint c2_index = vv_index_map[l][begin + c2];
-                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * n_dim],
-                            &vv_max_cell_dim[l - 1][c1_index * n_dim],
-                            &vv_min_cell_dim[l - 1][c2_index * n_dim],
-                            &vv_max_cell_dim[l - 1][c2_index * n_dim], n_dim, e)) {
-                        vv_stack[tid].emplace_back(l - 1, c1_index, c2_index);
-                        process_pair_stack(vv_edges[tid], vv_index_map, vv_cell_begin, vv_cell_ns,
-                                vv_min_cell_dim, vv_max_cell_dim, vv_stack[tid], n_dim, e);
-                    }
-                }
-            }
-        }
-        vv_stack[tid].clear();
-        vv_stack[tid].shrink_to_fit();
-        /*
-         * // TODO consider the necessity for removal
-        #pragma omp barrier
-        #pragma omp single
-        {
-            for (uint l = 1; l < n_level; ++l) {
-                vv_index_map[l].clear();
-                vv_index_map[l].shrink_to_fit();
-                vv_cell_ns[l].clear();
-                vv_cell_ns[l].shrink_to_fit();
-                vv_cell_begin[l].clear();
-                vv_cell_begin[l].shrink_to_fit();
-                vv_min_cell_dim[l].clear();
-                vv_min_cell_dim[l].shrink_to_fit();
-                vv_max_cell_dim[l].clear();
-                vv_max_cell_dim[l].shrink_to_fit();
-            }
-        }
-         */
-    } // end parallel region
-    for (uint t = 0; t < vv_edges.size(); ++t) {
-        v_edges.insert(v_edges.end(), std::make_move_iterator(vv_edges[t].begin()),
-                std::make_move_iterator(vv_edges[t].end()));
-    }
-}
+
 

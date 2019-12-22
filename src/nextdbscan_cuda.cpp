@@ -20,6 +20,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
 #include "nextdbscan_cuda.h"
+#include <omp.h>
+#include <chrono>
+
+struct cell_meta {
+    uint l, c;
+
+    cell_meta(uint l, uint c) : l(l), c(c) {}
+};
+
+struct cell_meta_pair_level {
+    uint l, c1, c2;
+
+    cell_meta_pair_level(uint l, uint c1, uint c2) : l(l), c1(c1), c2(c2) {}
+};
+
+inline bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
+        const uint max_d, const float e) noexcept {
+    for (uint d = 0; d < max_d; ++d) {
+        if ((min2[d] > (max1[d] + e) || min2[d] < (min1[d] - e)) &&
+            (min1[d] > (max2[d] + e) || min1[d] < (min2[d] - e)) &&
+            (max2[d] > (max1[d] + e) || max2[d] < (min1[d] - e)) &&
+            (max1[d] > (max2[d] + e) || max1[d] < (min2[d] - e))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 __global__ void index_kernel(const float* v_coord, uint* v_index, ull* v_map, const float* v_min,
         const ull* v_mult, const uint size, const uint max_d, const float eps) {
@@ -466,15 +493,15 @@ uint index_level_and_get_cells(thrust::device_vector<float> &v_coords,
         const uint size, const uint l, const uint max_d) noexcept {
     if (l == 0) {
         v_value_map.resize(size);
-        print_cuda_memory_usage();
+//        print_cuda_memory_usage();
         v_unique_cnt.resize(size);
-        print_cuda_memory_usage();
+//        print_cuda_memory_usage();
         v_coord_indexes.resize(size);
         thrust::sequence(v_coord_indexes.begin(), v_coord_indexes.end());
-        print_cuda_memory_usage();
+//        print_cuda_memory_usage();
         v_indexes.resize(size);
         thrust::sequence(v_indexes.begin(), v_indexes.end());
-        print_cuda_memory_usage();
+//        print_cuda_memory_usage();
     }
     v_device_index_map.resize(size);
     thrust::sequence(v_device_index_map.begin(), v_device_index_map.end());
@@ -504,6 +531,7 @@ uint index_level_and_get_cells(thrust::device_vector<float> &v_coords,
                     size);
     int result = thrust::count_if(v_unique_cnt.begin(), v_unique_cnt.begin() + size,
     [] __device__ (auto val) { return val > 0; });
+    cudaDeviceSynchronize();
     v_device_cell_ns.resize(result);
     v_device_cell_begin.resize(v_device_cell_ns.size());
     v_coord_indexes.resize(v_device_cell_ns.size());
@@ -527,6 +555,7 @@ void calculate_level_cell_bounds(thrust::device_vector<float> &v_coords,
         thrust::device_vector<float> &v_max_cell_dim,
         thrust::device_vector<float> &v_last_max_cell_dim,
         const uint l, const uint max_d) noexcept {
+    // TODO don't resize every level
     v_min_cell_dim.resize(v_device_cell_begin.size() * max_d, 0);
     v_max_cell_dim.resize(v_min_cell_dim.size(), 0);
     float* v_min_input_ptr;
@@ -555,6 +584,81 @@ void calculate_level_cell_bounds(thrust::device_vector<float> &v_coords,
     thrust::copy(v_max_cell_dim.begin(), v_max_cell_dim.end(), v_last_max_cell_dim.begin());
 }
 
+/*
+template<class T>
+void reserve_and_copy(thrust::device_vector<T> &v_to, thrust::device_vector<T> &v_from) {
+//    auto end = v_to.end();
+    auto n = v_to.size();
+    v_to.resize(v_to.size() + v_from.size());
+    thrust::copy(v_from.begin(), v_from.end(), v_to.begin() + n);
+}
+
+void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
+    uint size = n_coords;
+    v_gpu_coords.resize(size*n_dim);
+    thrust::copy(v_coords, v_coords+(size*n_dim), v_gpu_coords.begin());
+    thrust::device_vector<float> v_device_min_bounds(v_min_bounds);
+    thrust::device_vector<float> v_device_eps_levels(v_eps_levels);
+    thrust::device_vector <ull> v_device_dims_mult(v_dims_mult);
+    thrust::device_vector <ull> v_device_value_map;
+    thrust::device_vector <uint> v_device_index_map;
+    thrust::device_vector <uint> v_device_cell_ns;
+    thrust::device_vector <uint> v_device_cell_begin;
+    thrust::device_vector <uint> v_coord_indexes;
+    thrust::device_vector <uint> v_unique_cnt;
+    thrust::device_vector <uint> v_indexes;
+    thrust::device_vector<float> v_min_cell_dim;
+    thrust::device_vector<float> v_last_min_cell_dim;
+    thrust::device_vector<float> v_max_cell_dim;
+    thrust::device_vector<float> v_last_max_cell_dim;
+    thrust::device_vector <uint> v_tmp;
+
+//    v_level_index_offset.resize(n_level);
+//    v_level_index_size.resize(n_level);
+//    v_level_other_offset.resize(n_level);
+//    v_level_other_size.resize(n_level);
+//    print_cuda_memory_usage();
+
+    for (int l = 0; l < n_level; ++l) {
+        size = index_level_and_get_cells(v_gpu_coords, v_device_index_map,
+                v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
+                v_device_dims_mult, v_device_eps_levels, v_device_value_map,
+                v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, v_tmp,
+                size, l, n_dim);
+
+//        std::cout << "size: " << size << std::endl;
+
+        // TODO remove when unnecessary
+        cudaDeviceSynchronize();
+
+        calculate_level_cell_bounds(v_gpu_coords, v_device_cell_begin, v_device_index_map,
+                v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
+                v_last_max_cell_dim, l, n_dim);
+
+        // TODO remove when unnecessary
+        cudaDeviceSynchronize();
+
+//        v_level_index_offset[l] = v_gpu_index_map.size();
+//        v_level_other_offset[l] = v_gpu_cell_begin.size();
+
+        std::cout << "level: " << l << std::endl;
+        print_cuda_memory_usage();
+
+//        reserve_and_copy(v_gpu_index_map, v_device_index_map);
+//        reserve_and_copy(v_gpu_cell_ns2, v_device_cell_ns);
+//        reserve_and_copy(v_gpu_cell_begin, v_device_cell_begin);
+//        reserve_and_copy(v_gpu_min_cell_dim, v_min_cell_dim);
+//        reserve_and_copy(v_gpu_max_cell_dim, v_max_cell_dim);
+//
+//        print_cuda_memory_usage();
+
+//        v_level_index_size[l] = v_device_index_map.size();
+//        v_level_other_size[l] = v_device_cell_begin.size();
+    }
+}
+ */
+
+// OLD
 void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
     uint size = n_coords;
     v_gpu_coords.resize(size*n_dim);
@@ -576,6 +680,7 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
     thrust::device_vector <uint> v_tmp;
 
     for (int l = 0; l < n_level; ++l) {
+//        std::cout << "level: " << l << std::endl;
 //        print_cuda_memory_usage();
         size = index_level_and_get_cells(v_gpu_coords, v_device_index_map,
                 v_device_cell_ns, v_device_cell_begin, v_device_min_bounds,
@@ -583,13 +688,15 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
                 v_coord_indexes, v_unique_cnt, v_indexes, v_device_dims_mult, v_tmp,
                 size, l, n_dim);
 
-        cudaDeviceSynchronize();
+//        cudaDeviceSynchronize();
+//        print_cuda_memory_usage();
 
         calculate_level_cell_bounds(v_gpu_coords, v_device_cell_begin, v_device_index_map,
                 v_device_cell_ns, v_min_cell_dim, v_last_min_cell_dim, v_max_cell_dim,
                 v_last_max_cell_dim, l, n_dim);
 
-        cudaDeviceSynchronize();
+//        cudaDeviceSynchronize();
+//        print_cuda_memory_usage();
         vv_index_map[l] = v_device_index_map;
         vv_cell_ns[l] = v_device_cell_ns;
         vv_cell_begin[l] = v_device_cell_begin;
@@ -598,9 +705,45 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
     }
 }
 
+void process_pair_stack(s_vec<uint> &v_edges,
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin,
+        d_vec<uint> &vv_cell_ns,
+        d_vec<float> &vv_min_cell_dim,
+        d_vec<float> &vv_max_cell_dim,
+        std::vector<cell_meta_pair_level> &v_stack,
+        const uint n_dim, const float e) noexcept {
+    while (!v_stack.empty()) {
+        uint l = v_stack.back().l;
+        uint c1 = v_stack.back().c1;
+        uint c2 = v_stack.back().c2;
+        v_stack.pop_back();
+        uint begin1 = vv_cell_begin[l][c1];
+        uint begin2 = vv_cell_begin[l][c2];
+        if (l == 0) {
+            // CUDA doesn't support emplace_back
+            v_edges.push_back(c1);
+            v_edges.push_back(c2);
+        } else {
+            for (uint k1 = 0; k1 < vv_cell_ns[l][c1]; ++k1) {
+                uint c1_next = vv_index_map[l][begin1 + k1];
+                for (uint k2 = 0; k2 < vv_cell_ns[l][c2]; ++k2) {
+                    uint c2_next = vv_index_map[l][begin2 + k2];
+                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_next * n_dim],
+                            &vv_max_cell_dim[l - 1][c1_next * n_dim],
+                            &vv_min_cell_dim[l - 1][c2_next * n_dim],
+                            &vv_max_cell_dim[l - 1][c2_next * n_dim], n_dim, e)) {
+                        v_stack.emplace_back(l - 1, c1_next, c2_next);
+                    }
+                }
+            }
+        }
+    }
+}
+
 void nc_tree::determine_cell_labels() noexcept {
     thrust::device_vector<int> v_gpu_min_labels(v_gpu_begin.size());
-    print_cuda_memory_usage();
+//    print_cuda_memory_usage();
 
     thrust::transform(v_gpu_leaf_cell_type.begin(), v_gpu_leaf_cell_type.end(), v_gpu_min_labels.begin(),
         [] __device__ (const int8_t val) {
@@ -644,7 +787,7 @@ void nc_tree::determine_cell_labels() noexcept {
             v_gpu_begin.size());
 
     cudaDeviceSynchronize();
-    print_cuda_memory_usage();
+//    print_cuda_memory_usage();
     v_point_labels = v_gpu_point_labels;
 }
 
@@ -652,6 +795,129 @@ void nc_tree::infer_types() noexcept {
     v_is_core = v_gpu_is_core;
 }
 
+void nc_tree::collect_proximity_queries() noexcept {
+    std::vector<cell_meta> v_tasks;
+    std::vector<std::vector<cell_meta_pair_level>> vv_stack(n_threads);
+    d_vec<uint> vv_edges(n_threads);
+    uint task_size = 0;
+#pragma omp parallel for reduction(+:task_size)
+    for (uint l = 1; l < n_level; ++l) {
+        task_size += vv_cell_begin[l].size();
+    }
+    v_tasks.reserve(task_size);
+    for (uint l = 1; l < n_level; ++l) {
+        for (uint i = 0; i < vv_cell_begin[l].size(); ++i) {
+            v_tasks.emplace_back(l,i);
+        }
+    }
+
+//    uint test;
+//    for (uint l = 0; l < n_level; ++l) {
+//        test = 0;
+//        for (uint i = 0; i < vv_cell_ns[l].size(); ++i) {
+//            test += (vv_cell_ns[l][i] * (vv_cell_ns[l][i] - 1)) / 2;
+//        }
+//        std::cout << "l: " << l << " " << test << std::endl;
+//    }
+
+//    auto start_timestamp_1 = std::chrono::high_resolution_clock::now();
+    uint total_edges = 0;
+#pragma omp parallel reduction(+: total_edges)
+    {
+        uint tid = omp_get_thread_num();
+        vv_edges[tid].reserve(v_tasks.size() / n_threads);
+#pragma omp for schedule(dynamic)
+        for (uint i = 0; i < v_tasks.size(); ++i) {
+            uint l = v_tasks[i].l;
+            uint c = v_tasks[i].c;
+            uint begin = vv_cell_begin[l][c];
+            for (uint c1 = 0; c1 < vv_cell_ns[l][c]; ++c1) {
+                uint c1_index = vv_index_map[l][begin + c1];
+                for (uint c2 = c1 + 1; c2 < vv_cell_ns[l][c]; ++c2) {
+                    uint c2_index = vv_index_map[l][begin + c2];
+                    if (is_in_reach(&vv_min_cell_dim[l - 1][c1_index * n_dim],
+                            &vv_max_cell_dim[l - 1][c1_index * n_dim],
+                            &vv_min_cell_dim[l - 1][c2_index * n_dim],
+                            &vv_max_cell_dim[l - 1][c2_index * n_dim], n_dim, e)) {
+                        vv_stack[tid].emplace_back(l - 1, c1_index, c2_index);
+                        process_pair_stack(vv_edges[tid], vv_index_map, vv_cell_begin, vv_cell_ns,
+                                vv_min_cell_dim, vv_max_cell_dim, vv_stack[tid], n_dim, e);
+                    }
+                }
+            }
+        }
+        total_edges += vv_edges[tid].size();
+    } // end parallel region
+    for (uint t = 0; t < n_threads; ++t) {
+        vv_stack[t].clear();
+        vv_stack[t].shrink_to_fit();
+    }
+    for (uint l = 1; l < n_level; ++l) {
+        vv_index_map[l].clear();
+        vv_index_map[l].shrink_to_fit();
+        vv_cell_ns[l].clear();
+        vv_cell_ns[l].shrink_to_fit();
+        vv_cell_begin[l].clear();
+        vv_cell_begin[l].shrink_to_fit();
+        vv_min_cell_dim[l].clear();
+        vv_min_cell_dim[l].shrink_to_fit();
+        vv_max_cell_dim[l].clear();
+        vv_max_cell_dim[l].shrink_to_fit();
+    }
+//    auto end_timestamp_1 = std::chrono::high_resolution_clock::now();
+//    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp_1 - start_timestamp_1).count()
+//              << " milliseconds\n";
+//    auto start_timestamp_2 = std::chrono::high_resolution_clock::now();
+    v_edges.reserve(total_edges);
+    for (uint t = 0; t < vv_edges.size(); ++t) {
+        v_edges.insert(v_edges.end(), std::make_move_iterator(vv_edges[t].begin()),
+                std::make_move_iterator(vv_edges[t].end()));
+    }
+//    auto end_timestamp_2 = std::chrono::high_resolution_clock::now();
+//    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp_2 - start_timestamp_2).count()
+//              << " milliseconds\n";
+}
+//void nc_tree::collect_proximity_queries() noexcept {
+
+//    uint sum = thrust::reduce(v_gpu_cell_ns2.begin(), v_gpu_cell_ns2.begin() + v_level_other_size[0], 0);
+
+
+/*
+    thrust::device_vector<uint> v_cnt;
+    for (uint l = 0; l < n_level; ++l) {
+        v_cnt.resize((v_level_other_size[l]));
+        thrust::copy(v_gpu_cell_ns2.begin() + v_level_other_offset[l],
+                v_gpu_cell_ns2.begin() + v_level_other_size[l] + + v_level_other_offset[l], v_cnt.begin());
+
+        thrust::transform(v_cnt.begin(), v_cnt.end(), v_cnt.begin(),
+                [] __device__ (const auto val) { return (val * (val-1) / 2); });
+    }
+    */
+
+//    for (uint l = 0; l < n_level; ++l) {
+//        std::cout << "l: " << l << " size: " << v_level_other_offset[l] << std::endl;
+//    }
+//    thrust::device_vector<uint> v_cnt = ;
+//    for (uint l = 0; l < n_level; ++l) {
+//        uint sum = 0;
+
+//        for (uint i = v_level_other_offset[l]; i < v_level_other_offset[l] + v_level_other_size[l]; ++i) {
+//            sum += v_gpu_cell_ns2[i] * v_gpu_cell_ns2[i];
+//        }
+//        std::cout << "l: " << l << " sum: " << sum << std::endl;
+//    }
+
+//    thrust::device_vector<uint> v_cnt(v_gpu_cell_ns.size(), 0);
+//    uint max_level = vv_index_map.size();
+//    uint l = max_level-1;
+//
+//    thrust::transform(v_cnt.begin(), v_cnt.begin() + v_gpu_cell_ns, v_gpu_min_labels.begin(),
+//            [] __device__ (const int8_t val) {
+//        if (val == NO_CORES) return UNASSIGNED; return ROOT_CLUSTER;
+//    });
+
+//    for (uint l = max_level-1; l )
+//}
 
 void nc_tree::process_proximity_queries() noexcept {
     v_gpu_index = vv_index_map[0];
@@ -668,7 +934,7 @@ void nc_tree::process_proximity_queries() noexcept {
 //    std::cout << "Coords size: " << n_coords << std::endl;
 //    std::cout << "m: " << m << std::endl;
 
-    print_cuda_memory_usage();
+//    print_cuda_memory_usage();
 
 //    uint max_points_in_cell = thrust::reduce(v_gpu_cell_ns.begin(), v_gpu_cell_ns.end(), 0, thrust::maximum<int>());
 //    std::cout << "Max points in cell: " << max_points_in_cell << std::endl;
@@ -713,5 +979,5 @@ void nc_tree::process_proximity_queries() noexcept {
             v_gpu_begin.size());
 
     cudaDeviceSynchronize();
-    print_cuda_memory_usage();
+//    print_cuda_memory_usage();
 }

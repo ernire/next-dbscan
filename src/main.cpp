@@ -66,7 +66,6 @@ int main(int argc, char** argv) {
     std::string input_file;
     std::string output_file = "";
 
-
     while ((option = getopt(argc, argv, "hm:e:o:t:d:")) != -1) {
         switch (option) {
             case 'm': {
@@ -124,10 +123,13 @@ int main(int argc, char** argv) {
         usage();
         std::exit(EXIT_FAILURE);
     }
-    if (n_threads > 1 && n_threads % 2 == 1) {
-        std::cerr << "The number of threads must be a multiple of 2 (2^0 also permitted)." << std::endl;
-        std::exit(EXIT_FAILURE);
-    } else if (n_threads == -1) {
+//    if (n_threads > 1 && n_threads % 2 == 1) {
+//        std::cerr << "The number of threads must be a multiple of 2 (2^0 also permitted)." << std::endl;
+//        std::exit(EXIT_FAILURE);
+//    } else if (n_threads == -1) {
+//        n_threads = 1;
+//    }
+    if (n_threads == -1) {
         n_threads = 1;
     }
 

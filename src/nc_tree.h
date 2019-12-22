@@ -63,7 +63,6 @@ private:
     d_vec<float> vv_max_cell_dim;
     s_vec<uint> v_edges;
     s_vec<uint8_t> v_edge_conn;
-    uint max_points_in_cell = 0;
     s_vec<uint> v_leaf_cell_np;
     s_vec<uint> v_point_np;
     s_vec<uint8_t> v_leaf_cell_type;
@@ -75,6 +74,18 @@ private:
     thrust::device_vector<int> v_gpu_point_labels;
     thrust::device_vector<uint8_t> v_gpu_is_core;
     thrust::device_vector<uint8_t> v_gpu_leaf_cell_type;
+
+//    thrust::device_vector <uint> v_gpu_index_map;
+//    thrust::device_vector <uint> v_gpu_cell_ns2;
+//    thrust::device_vector <uint> v_gpu_cell_begin;
+//    thrust::device_vector<float> v_gpu_min_cell_dim;
+//    thrust::device_vector<float> v_gpu_max_cell_dim;
+
+//    thrust::device_vector<uint> v_level_index_offset;
+//    thrust::device_vector<uint> v_level_index_size;
+//    thrust::device_vector<uint> v_level_other_offset;
+//    thrust::device_vector<uint> v_level_other_size;
+
     thrust::device_vector<uint> v_gpu_index;
     thrust::device_vector<uint> v_gpu_begin;
     thrust::device_vector<uint> v_gpu_cell_ns;
