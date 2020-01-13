@@ -19,6 +19,15 @@ public:
         std::cout << std::endl;
     }
 
+    template<class T>
+    static T sum_array(T *arr, uint size) noexcept {
+        T sum = 0;
+        for (uint i = 0; i < size; ++i) {
+            sum += arr[i];
+        }
+        return sum;
+    }
+
     static void print_tree_meta_data(nc_tree &nc_tree) {
         std::cout << "NC-tree levels: " << nc_tree.n_level << std::endl;
         for (uint l = 0; l < nc_tree.n_level; ++l) {

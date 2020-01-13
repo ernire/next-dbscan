@@ -24,8 +24,10 @@ SOFTWARE.
 #include <algorithm>
 #include <memory>
 #include <chrono>
+#include <cassert>
 #include "nextdbscan_omp.h"
 #include "deep_io.h"
+#include "next_util.h"
 
 struct cell_meta {
     uint l, c;
@@ -175,6 +177,93 @@ void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint
     }
 }
 
+uint index_level(float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_dim_cells,
+        d_vec<uint> &vv_index_map, d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns,
+        float level_eps,
+        const int l, const uint size, const uint n_dim, const uint n_threads
+        /*
+        d_vec<uint> &vv_index_map,
+        d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
+        std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
+        std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint n_dim,
+        uint node_offset, float level_eps, ull *dims_mult, uint n_threads
+         */
+        ) noexcept {
+
+    // Find epsilon which supports int
+
+    v_dim_cells.resize(size * n_dim);
+
+    #pragma omp parallel for
+    for (uint i = 0; i < size; ++i) {
+        uint p_index = i;
+        int level_mod = 1;
+        while (l - level_mod >= 0) {
+            p_index = vv_index_map[l - level_mod][vv_cell_begin[l - level_mod][p_index]];
+            ++level_mod;
+        }
+        uint coord_index = (p_index) * n_dim;
+        for (uint d = 0; d < n_dim; ++d) {
+            v_dim_cells[(i*n_dim) + d] = floorf((v_coords[coord_index + d] - v_min_bounds[d]) / level_eps);
+//            assert(v_dim_cells[(i*n_dim) + d] <= v_max_dim_values[d]);
+        }
+    }
+    vv_index_map[l].resize(size);
+    std::iota(vv_index_map[l].begin(), vv_index_map[l].end(), 0);
+    std::sort(vv_index_map[l].begin(), vv_index_map[l].end(),
+            [&size, &n_dim, &v_dim_cells](const uint &i1, const uint &i2) -> bool {
+                const uint ci1 = i1 * n_dim;
+                const uint ci2 = i2 * n_dim;
+                for (uint d = 0; d < n_dim; ++d) {
+                    if (v_dim_cells[ci1+d] < v_dim_cells[ci2+d]) {
+                        return true;
+                    }
+                    if (v_dim_cells[ci1+d] > v_dim_cells[ci2+d]) {
+                        return false;
+                    }
+                }
+                return false;
+            });
+
+    uint n_cells = 1;
+    uint ci1 = vv_index_map[l][0] * n_dim;
+    for (uint i = 1; i < vv_index_map[l].size(); ++i) {
+        uint ci2 = vv_index_map[l][i] * n_dim;
+        for (uint d = 0; d < n_dim; ++d) {
+            if (v_dim_cells[ci1+d] != v_dim_cells[ci2+d]) {
+                ++n_cells;
+                ci1 = ci2;
+                d = n_dim;
+            }
+        }
+    }
+    vv_cell_begin[l].resize(n_cells);
+    v_cell_ns.resize(n_cells, 0);
+    uint index = 0;
+    uint n_cnt = 1;
+    vv_cell_begin[l][0] = 0;
+    ci1 = vv_index_map[l][0] * n_dim;
+    for (uint i = 1; i < vv_index_map[l].size(); ++i) {
+        uint ci2 = vv_index_map[l][i] * n_dim;
+        bool is_equal = true;
+        for (uint d = 0; d < n_dim && is_equal; ++d) {
+            if (v_dim_cells[ci1+d] != v_dim_cells[ci2+d]) {
+                v_cell_ns[index] = n_cnt;
+                ++index;
+                vv_cell_begin[l][index] = i;
+                n_cnt = 1;
+                ci1 = ci2;
+                is_equal = false;
+            }
+        }
+        if (is_equal) {
+            ++n_cnt;
+        }
+    }
+    v_cell_ns[index] = n_cnt;
+    return v_cell_ns.size();
+}
+
 uint index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
         std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
@@ -321,6 +410,9 @@ void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
 
 void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
     uint size = n_coords;
+
+    std::vector<uint> v_dim_cells;
+
     for (int l = 0; l < n_level; ++l) {
         std::vector<ull> v_value_map;
         std::vector<std::vector<uint>> v_bucket(n_threads);
@@ -329,13 +421,16 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
         std::vector<ull> v_bucket_separator_tmp;
         v_bucket_separator_tmp.reserve(n_threads * n_threads);
         t_uint_iterator v_iterator(n_threads);
-        size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
-                vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
-                v_iterator, size, l, n_dim, 0, v_eps_levels[l],
-                &v_dims_mult[l * n_dim], n_threads);
+//        size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
+//                vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
+//                v_iterator, size, l, n_dim, 0, v_eps_levels[l],
+//                &v_dims_mult[l * n_dim], n_threads);
+        size = index_level(v_coords, v_min_bounds, v_dim_cells, vv_index_map, vv_cell_begin,
+                vv_cell_ns[l], v_eps_levels[l], l, size, n_dim, n_threads);
         calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
                 vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
     }
+
 }
 
 uint fill_range_table(const float *v_coords, s_vec<uint> &v_index_map_level,

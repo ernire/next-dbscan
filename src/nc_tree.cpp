@@ -69,10 +69,11 @@ void nc_tree::calc_bounds(float *min_bounds, float *max_bounds) noexcept {
 
 void nc_tree::calc_dims_mult(ull *dims_mult, const uint max_d, s_vec<float> &min_bounds,
         s_vec<float> &max_bounds, const float e_inner) noexcept {
+    /*
     std::vector<uint> dims(max_d);
     dims_mult[0] = 1;
     for (uint d = 0; d < max_d; d++) {
-        dims[d] = ((max_bounds[d] - min_bounds[d]) / e_inner) + 1;
+        dims[d] = ((max_bounds[d] - min_bounds[d]) / e_innere) + 1;
         if (d > 0) {
             dims_mult[d] = dims_mult[d - 1] * dims[d - 1];
             if (dims_mult[d] < dims_mult[d-1]) {
@@ -83,6 +84,7 @@ void nc_tree::calc_dims_mult(ull *dims_mult, const uint max_d, s_vec<float> &min
             }
         }
     }
+     */
 }
 
 uint nc_tree::determine_data_boundaries() noexcept {

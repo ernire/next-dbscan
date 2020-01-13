@@ -85,6 +85,7 @@ namespace nextdbscan {
             const uint n_nodes, const uint node_index) noexcept {
         uint n = 0;
 #ifdef HDF5_ON
+        // TODO H5F_ACC_RDONLY ?
         hid_t file = H5Fopen(in_file.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
         hid_t dset = H5Dopen1(file, "DBSCAN");
         hid_t fileSpace= H5Dget_space(dset);

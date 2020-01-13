@@ -53,7 +53,7 @@ class nc_tree {
 private:
     float *v_coords;
     const float e2;
-    const float e_inner;
+    float e_inner;
     s_vec<float> v_min_bounds;
     s_vec<float> v_max_bounds;
     d_vec<uint> vv_index_map;
@@ -110,8 +110,19 @@ public:
     const uint n_threads;
 
     explicit nc_tree(float* v_coords, uint n_dim, uint n_coords, float e, uint m, uint n_threads)
-        : v_coords(v_coords), n_dim(n_dim), n_coords(n_coords), m(m), e(e), n_threads(n_threads), e2(e*e),
-        e_inner((e / sqrtf(3))) {}
+        : v_coords(v_coords), n_dim(n_dim), n_coords(n_coords), m(m), e(e), n_threads(n_threads), e2(e*e) {
+                if (n_dim <= 3) {
+                    e_inner = e / sqrtf(3);
+                } else if (n_dim <= 8) {
+                    e_inner = e / sqrtf(3);
+                } else if (n_dim <= 30) {
+                    e_inner = e / sqrtf(4);
+                } else if (n_dim <= 80) {
+                    e_inner = e / sqrtf(5);
+                } else {
+                    e_inner = e / sqrtf(6);
+                }
+            }
 
     void build_tree() noexcept;
 
