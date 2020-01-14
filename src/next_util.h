@@ -7,13 +7,14 @@
 
 #include <string>
 #include <iostream>
+#include <algorithm>
 
 class next_util {
 public:
     template<class T>
-    static void print_array(const std::string &name, T *arr, uint max_d) noexcept {
+    static void print_array(const std::string &name, T *arr, uint n_dim) noexcept {
         std::cout << name << ": ";
-        for (int i = 0; i < max_d; ++i) {
+        for (int i = 0; i < n_dim; ++i) {
             std::cout << arr[i] << " ";
         }
         std::cout << std::endl;
@@ -26,6 +27,33 @@ public:
             sum += arr[i];
         }
         return sum;
+    }
+
+    // 2, 3, 5, 7 only
+    static bool small_prime_factor(std::vector<uint> &v_prime_cnt, uint number) {
+        v_prime_cnt.resize(4, 0);
+        int primes[] {2,3,5,7};
+        for (int i = 0; i < 4; ++i) {
+            while (number % primes[i] == 0) {
+                number /= primes[i];
+                ++v_prime_cnt[i];
+            }
+        }
+        return number <= 1;
+    }
+
+    static void get_small_prime_factors(std::vector<uint> &v_primes, uint number) {
+        std::vector<uint> v_prime_cnt;
+        int primes[] {2,3,5,7};
+        if (small_prime_factor(v_prime_cnt, number)) {
+            for (int i = 0; i < 4; ++i) {
+                while (v_prime_cnt[i] > 0) {
+                    v_primes.push_back(primes[i]);
+                    v_prime_cnt[i]--;
+                }
+            }
+            std::reverse(v_primes.begin(), v_primes.end());
+        }
     }
 
     static void print_tree_meta_data(nc_tree &nc_tree) {

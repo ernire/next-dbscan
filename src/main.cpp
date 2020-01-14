@@ -26,6 +26,8 @@ SOFTWARE.
 #include <iomanip>
 #include "nextdbscan.h"
 #include "deep_io.h"
+#include "next_util.h"
+
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -123,12 +125,12 @@ int main(int argc, char** argv) {
         usage();
         std::exit(EXIT_FAILURE);
     }
-//    if (n_threads > 1 && n_threads % 2 == 1) {
-//        std::cerr << "The number of threads must be a multiple of 2 (2^0 also permitted)." << std::endl;
-//        std::exit(EXIT_FAILURE);
-//    } else if (n_threads == -1) {
-//        n_threads = 1;
-//    }
+    std::vector<uint> prime_cnt;
+    if (!next_util::small_prime_factor(prime_cnt, n_threads)) {
+        std::cerr << "ERROR: t must be a multiple of at least one of these primes: 2,3,5,7 (t=" << n_threads
+            << ")" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
     if (n_threads == -1) {
         n_threads = 1;
     }
@@ -144,6 +146,11 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     block_index = mpi_rank;
     blocks_no = mpi_size;
+    if (!next_util::small_prime_factor(prime_cnt, blocks_no)) {
+        std::cerr << "ERROR: the used nodes must be a multiple of at least one of these primes: 2,3,5,7 (nodes="
+        << blocks_no << ")" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 #endif
 
     if (block_index == 0)
