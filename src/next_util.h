@@ -42,6 +42,20 @@ public:
         return number <= 1;
     }
 
+    static void get_split_offsets(std::vector<uint> &v_offsets, uint number, uint split_size) {
+        v_offsets.resize(split_size, 0);
+        uint block = number / split_size;
+        uint rest = number % split_size;
+        v_offsets[0] = 0;
+        for (uint i = 1; i < split_size; ++i) {
+            v_offsets[i] = v_offsets[i-1] + block;
+            if (rest > 0) {
+                ++v_offsets[i];
+                --rest;
+            }
+        }
+    }
+
     static void get_small_prime_factors(std::vector<uint> &v_primes, uint number) {
         std::vector<uint> v_prime_cnt;
         int primes[] {2,3,5,7};

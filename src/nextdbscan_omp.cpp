@@ -222,12 +222,22 @@ inline void count_cells_per_dim(s_vec<ull> &v_n_cells_dim, s_vec<float> &v_min_b
     }
 }
 
-const uint FREE = 0;
-const uint FIXED = 1;
-const uint FROZEN = 2;
+//const uint8_t FREE = 0;
+//const uint8_t FIXED = 1;
+//const uint8_t FROZEN = 2;
 
 void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
         const uint n_dim, const uint n_points, const uint n_partitions, const float e_inner) {
+
+    s_vec<uint> v_dim_cells(n_dim);
+    s_vec<float> v_perfect_cell_score(n_dim);
+    for (uint d = 0; d < n_dim; ++d) {
+        v_dim_cells[d] = ((v_max_bounds[d] - v_min_bounds[d]) / e_inner) + 1;
+        v_perfect_cell_score[d] = (float)n_points / v_dim_cells[d];
+    }
+
+    next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
+    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
 
     s_vec<uint> v_index_dims(n_points*n_dim);
     #pragma omp parallel for
@@ -237,32 +247,224 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
             v_index_dims[point_index+d] = (v_coords[point_index+d] - v_min_bounds[d]) / e_inner;
         }
     }
-    double avg_dims[n_dim];
-    double std_dev_dims[n_dim];
-    #pragma omp parallel for reduction(+:avg_dims[:n_dim])
-    for (uint i = 0; i < n_points; ++i) {
-        uint point_index = i*n_dim;
-        for (uint d = 0; d < n_dim; ++d) {
-            avg_dims[d] += v_index_dims[point_index+d];
-        }
-    }
+    s_vec<int> v_cell_cnt;
+    s_vec<double> v_dim_scores(n_dim, 0);
     for (uint d = 0; d < n_dim; ++d) {
-        avg_dims[d] /= n_points;
+        if (v_dim_cells[d] < n_partitions) {
+            v_dim_scores[d] = INT32_MAX;
+            continue;
+        }
+        v_cell_cnt.clear();
+        v_cell_cnt.resize(v_dim_cells[d], 0);
+        for (uint i = 0; i < n_points; ++i) {
+            uint point_index = i * n_dim;
+            assert(v_index_dims[point_index+d] < v_cell_cnt.size());
+            ++v_cell_cnt[v_index_dims[point_index+d]];
+        }
+        // score
+        double score = 0;
+        double tmp = 0;
+        for (uint i = 0; i < v_cell_cnt.size(); ++i) {
+            tmp = v_cell_cnt[i] / v_perfect_cell_score[d];
+            score += tmp * tmp;
+        }
+        v_dim_scores[d] = score / v_dim_cells[d];
     }
+    next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
+
+    uint check = 0;
     for (uint i = 0; i < n_points; ++i) {
         uint point_index = i*n_dim;
-        for (uint d = 0; d < n_dim; ++d) {
-            std_dev_dims[d] = fabs(v_index_dims[point_index+d] - avg_dims[d]);
-            std_dev_dims[d] *= std_dev_dims[d];
+        if (v_index_dims[point_index] > 60 && v_index_dims[point_index+2] > 61) {
+            check++;
         }
     }
-    next_util::print_array("avg dims: ", avg_dims, n_dim);
-    next_util::print_array("std dev dims: ", std_dev_dims, n_dim);
+    std::cout << "check: " << check << std::endl;
 
     s_vec<uint> v_primes;
     next_util::get_small_prime_factors(v_primes, n_partitions);
     next_util::print_array("prime factors: ", &v_primes[0], v_primes.size());
 
+    // streamline primes factors if necessary
+    while (v_primes.size() > n_dim) {
+        v_primes[v_primes.size()-2] *= v_primes[v_primes.size()-1];
+        v_primes.resize(v_primes.size()-1);
+        std::sort(v_primes.begin(), v_primes.end(), std::greater<>());
+    }
+    next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
+    s_vec<uint> v_prime_dims(n_dim);
+    std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
+
+    std::sort(v_prime_dims.begin(), v_prime_dims.end(), [&v_dim_scores] (const uint &i1, const uint &i2) -> bool {
+       return v_dim_scores[i1] < v_dim_scores[i2];
+    });
+
+    v_prime_dims.resize(v_primes.size());
+    next_util::print_array("selected dims: ", &v_prime_dims[0], v_primes.size());
+//    std::cout << "test: " << std_dev_dims[v_prime_d[0]] << " : " << std_dev_dims[v_prime_d[1]] << std::endl;
+
+    float e_partition = e_inner;
+//    int power = 1;
+//    ull max_partitions = INT32_MAX;
+//    ull partition_cnt = INT64_MAX;
+#ifdef MPI_ON
+    // set max_partitions to something smaller
+#endif
+    /*
+    while (partition_cnt > max_partitions) {
+        partition_cnt = 0;
+        for (uint d : v_prime_dims) {
+            ull dim_cells = (v_max_bounds[d] - v_min_bounds[d]) / e_partition;
+            if (dim_cells > partition_cnt) {
+                partition_cnt = dim_cells;
+            }
+        }
+        if (partition_cnt > max_partitions) {
+            e_partition = (float)(e_inner * pow(2, ++power));
+        }
+    }
+     */
+
+    uint used_partitions = 1;
+    for (int p = 0; p < v_primes.size()-1; ++p) {
+        used_partitions *= v_primes[p];
+    }
+    std::vector<uint> v_point_parts(n_partitions);
+    std::vector<std::vector<uint>> vv_cell_cnts(used_partitions);
+    std::vector<uint> v_partition_point_cnt(used_partitions, 0);
+
+    for (uint i = 0; i < used_partitions; ++i) {
+        vv_cell_cnts[i].resize(n_points, 0);
+    }
+    std::vector<uint> v_splits;
+    used_partitions = 1;
+    uint last_d = INT32_MAX;
+    for (int p = 0; p < v_primes.size(); ++p) {
+        std::cout << "STARTING prime: " << v_primes[p] << std::endl;
+        uint n_parts = v_primes[p];
+        uint d = v_prime_dims[p];
+        uint n_dim_cells = ((v_max_bounds[d] - v_min_bounds[d]) / e_inner) + 1;
+        std::cout << "d: " << d << " n_dim_cells: " << n_dim_cells << std::endl;
+        assert(n_parts <= n_dim_cells);
+
+        // Count cell points in current dimension
+//        #pragma omp parallel for
+        for (uint i = 0; i < n_points; ++i) {
+            uint p_index = i*n_dim;
+            assert(p_index < v_index_dims.size());
+            assert(v_index_dims[p_index+d] < n_dim_cells);
+            uint part_index = 0;
+            if (p > 0) {
+                part_index = v_index_dims[p_index+last_d];
+                assert(part_index < used_partitions);
+//                #pragma omp atomic
+                ++v_partition_point_cnt[part_index];
+            } else {
+                v_partition_point_cnt[0] = n_points;
+            }
+//            #pragma omp atomic
+            ++vv_cell_cnts[part_index][v_index_dims[p_index+d]];
+        }
+        next_util::print_array("partition points: ", &v_partition_point_cnt[0], used_partitions);
+        v_splits.resize(used_partitions*(n_parts-1), 0);
+//        std::cout << "split array size: " << v_splits.size() << std::endl;
+        // Make splits
+        for (uint i = 0; i < used_partitions; ++i) {
+            uint split_index = i*(n_parts-1);
+            long long perfect_score = v_partition_point_cnt[i] / n_parts;
+//            std::cout << "Perfect score: " << perfect_score << " for i: " << i << std::endl;
+            long long score = 0;
+            long long last_score = INT64_MAX;
+            long long sum = 0;
+            for (uint c = 0; c < n_dim_cells; ++c) {
+                sum += vv_cell_cnts[i][c];
+//                std::cout << "sum: " << sum << " where c: " << c << std::endl;
+                score = perfect_score - sum;
+                if (labs(last_score) < labs(score)) {
+                    --c;
+//                    std::cout << "set split index " << split_index << " to " << c << std::endl;
+                    v_splits[split_index++] = c;
+                    assert(split_index-(i*(n_parts-1)) < n_parts);
+                    perfect_score += last_score;
+                    if (split_index == (i+1)*(n_parts-1)) {
+                        c = n_dim_cells;
+                    }
+//                    if (v_splits.size() == n_parts-1) {
+//                        c = n_dim_cells;
+//                    }
+                    last_score = INT64_MAX;
+                    sum = 0;
+                } else {
+                    last_score = score;
+                }
+            }
+        }
+        next_util::print_array("splits: ", &v_splits[0], v_splits.size());
+
+//#pragma omp parallel for
+        for (uint i = 0; i < n_points; ++i) {
+            uint p_index = i*n_dim;
+            uint part_index = p == 0? 0 : v_index_dims[p_index+last_d];
+            uint split_index = part_index*n_parts;
+            uint val = v_index_dims[p_index+d];
+            uint partition_id = INT32_MAX;
+            assert(p_index < v_index_dims.size());
+            assert(v_index_dims[p_index+d] < n_dim_cells);
+            for (uint s = 0; s < n_parts-1; ++s) {
+                if (val <= v_splits[(part_index*(n_parts-1))+s]) {
+                    partition_id = split_index+s;
+                    s = n_parts;
+                }
+            }
+            v_index_dims[p_index+d] = partition_id == INT32_MAX? split_index+(n_parts-1) : partition_id;
+            /*
+            for (uint s = 0; s < n_parts; ++s) {
+                if (val <= v_splits[split_index+s]) {
+                    partition_id = split_index+s;
+                    s = n_parts;
+                }
+            }
+            v_index_dims[p_index+d] = partition_id == INT32_MAX? split_index+(n_parts-1) : partition_id;
+             */
+
+        }
+
+        // cleanup
+        last_d = d;
+        std::fill(v_partition_point_cnt.begin(), v_partition_point_cnt.end(), 0);
+        for (uint i = 0; i < used_partitions; ++i) {
+            std::fill(vv_cell_cnts[i].begin(), vv_cell_cnts[i].end(), 0);
+        }
+        used_partitions *= n_parts;
+        std::cout << "Used partitions = " << used_partitions << std::endl;
+        for (uint i = 0; i < n_points; ++i) {
+            uint p_index = i*n_dim;
+//            if (v_index_dims[p_index+d] >= used_partitions) {
+//                std::cout << "Fail: " << v_index_dims[p_index+d] << std::endl;
+//            }
+            assert(v_index_dims[p_index+d] < used_partitions);
+        }
+    }
+
+    v_partition_point_cnt.resize(used_partitions, 0);
+    for (uint i = 0; i < n_points; ++i) {
+        uint p_index = i*n_dim;
+        assert(p_index < v_index_dims.size());
+        ++v_partition_point_cnt[v_index_dims[p_index+last_d]];
+//        assert(v_index_dims[p_index+d] < n_dim_cells);
+//        uint part_index = 0;
+//        if (p > 0) {
+//            part_index = v_index_dims[p_index+last_d];
+//            assert(part_index < used_partitions);
+//                #pragma omp atomic
+//            ++v_partition_point_cnt[part_index];
+//        } else {
+//            v_partition_point_cnt[0] = n_points;
+//        }
+//            #pragma omp atomic
+//        ++vv_cell_cnts[part_index][v_index_dims[p_index+d]];
+    }
+    next_util::print_array("final partitions: ", &v_partition_point_cnt[0], used_partitions);
 
     /*
     s_vec<ull> v_n_cells_dim(n_dim);
