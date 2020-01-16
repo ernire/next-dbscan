@@ -180,7 +180,7 @@ namespace nextdbscan {
         measure_duration("Input Read: ", node_index == 0, [&]() -> void {
             total_samples = read_input(in_file, v_coords, n, max_d, n_nodes, node_index);
         });
-        auto time_data_read = std::chrono::high_resolution_clock::now();
+//        auto time_data_read = std::chrono::high_resolution_clock::now();
         if (node_index == 0) {
             std::cout << "Found " << n << " points in " << max_d << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
@@ -192,6 +192,7 @@ namespace nextdbscan {
             nc.build_tree();
         });
 //        next_util::print_tree_meta_data(nc);
+        /*
         measure_duration("Collect Proximity Queries: ", node_index == 0, [&]() -> void {
             nc.collect_proximity_queries();
         });
@@ -216,6 +217,7 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
         return collect_results(nc);
+         */
     }
 
 }

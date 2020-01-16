@@ -177,76 +177,32 @@ void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint
     }
 }
 
-inline ull sum_cells(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds, const uint n_dim, const float e_p) {
-    ull total_cells = 1;
-    ull last_total;
-    for (uint d = 0; d < n_dim; ++d) {
-        last_total = total_cells;
-//        total_cells *= std::max((uint)((v_max_bounds[d] - v_min_bounds[d]) / e_p), (uint)1);
-        total_cells *= ((uint)((v_max_bounds[d] - v_min_bounds[d]) / e_p) + 1);
-        if (total_cells >= INT32_MAX || total_cells < last_total) {
-            d = n_dim;
-            total_cells = INT32_MAX;
-        }
-    }
-    return total_cells;
-}
-
-float determine_partition_eps(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
-        const uint n_dim, const uint n_points, const uint n_partitions, const float e_inner) {
-    std::vector<uint> v_cells_dim(n_dim, 0);
-    ull total_cells;
-    uint n_iter = 0;
-    float e_partition;
-    uint max = n_partitions * n_dim;
-    do {
-        e_partition = (e_inner * powf(2, n_iter));
-        total_cells = sum_cells(v_min_bounds, v_max_bounds, n_dim, e_partition);
-        if (total_cells > max) {
-            ++n_iter;
-        }
-//        std::cout << "iter: " << n_iter << " : " << total_cells << std::endl;
-    } while (total_cells > max);
-//    if (n_iter > 0) {
-//        --n_iter;
-//        e_partition = (e_inner * powf(2, n_iter));
-//    }
-    std::cout << "eps partition value = e_inner * 2^" << n_iter << std::endl;
-    return e_partition;
-}
-
-inline void count_cells_per_dim(s_vec<ull> &v_n_cells_dim, s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
-        const uint n_dim, const float e_p) {
-    for (uint d = 0; d < n_dim; ++d) {
-        v_n_cells_dim[d] = ((v_max_bounds[d] - v_min_bounds[d]) / e_p) + 1;
-    }
-}
-
-//const uint8_t FREE = 0;
-//const uint8_t FIXED = 1;
-//const uint8_t FROZEN = 2;
-
-void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
-        const uint n_dim, const uint n_points, const uint n_partitions, const float e_inner) {
-
-    s_vec<uint> v_dim_cells(n_dim);
-    s_vec<float> v_perfect_cell_score(n_dim);
-    for (uint d = 0; d < n_dim; ++d) {
-        v_dim_cells[d] = ((v_max_bounds[d] - v_min_bounds[d]) / e_inner) + 1;
-        v_perfect_cell_score[d] = (float)n_points / v_dim_cells[d];
-    }
-
-    next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
-    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
-
-    s_vec<uint> v_index_dims(n_points*n_dim);
+void fill_point_cell_indexes(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_index_dims,
+        const uint n_points, const uint n_dim, const float eps) {
     #pragma omp parallel for
     for (uint i = 0; i < n_points; ++i) {
         uint point_index = i*n_dim;
         for (uint d = 0; d < n_dim; ++d) {
-            v_index_dims[point_index+d] = (v_coords[point_index+d] - v_min_bounds[d]) / e_inner;
+            v_index_dims[point_index+d] = (v_coords[point_index+d] - v_min_bounds[d]) / eps;
         }
     }
+}
+
+void select_partition_dims(const float *v_coords, s_vec<uint> &v_primes,
+        s_vec<uint> &v_prime_dims,
+        s_vec<float> &v_min_bounds,
+        s_vec<float> &v_max_bounds, s_vec<uint> &v_index_dims,
+        const uint n_dim, const uint n_points, const uint n_partitions, const float eps_p) {
+    s_vec<uint> v_dim_cells(n_dim);
+    s_vec<float> v_perfect_cell_score(n_dim);
+    for (uint d = 0; d < n_dim; ++d) {
+        v_dim_cells[d] = ((v_max_bounds[d] - v_min_bounds[d]) / eps_p) + 1;
+        v_perfect_cell_score[d] = (float)n_points / v_dim_cells[d];
+    }
+    next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
+    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
+
+    fill_point_cell_indexes(v_coords, v_min_bounds, v_index_dims, n_points, n_dim, eps_p);
     s_vec<int> v_cell_cnt;
     s_vec<double> v_dim_scores(n_dim, 0);
     for (uint d = 0; d < n_dim; ++d) {
@@ -261,7 +217,6 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
             assert(v_index_dims[point_index+d] < v_cell_cnt.size());
             ++v_cell_cnt[v_index_dims[point_index+d]];
         }
-        // score
         double score = 0;
         double tmp = 0;
         for (uint i = 0; i < v_cell_cnt.size(); ++i) {
@@ -272,16 +227,7 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
     }
     next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
 
-    uint check = 0;
-    for (uint i = 0; i < n_points; ++i) {
-        uint point_index = i*n_dim;
-        if (v_index_dims[point_index] > 60 && v_index_dims[point_index+2] > 61) {
-            check++;
-        }
-    }
-    std::cout << "check: " << check << std::endl;
 
-    s_vec<uint> v_primes;
     next_util::get_small_prime_factors(v_primes, n_partitions);
     next_util::print_array("prime factors: ", &v_primes[0], v_primes.size());
 
@@ -292,38 +238,19 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
         std::sort(v_primes.begin(), v_primes.end(), std::greater<>());
     }
     next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
-    s_vec<uint> v_prime_dims(n_dim);
-    std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
 
+    std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
     std::sort(v_prime_dims.begin(), v_prime_dims.end(), [&v_dim_scores] (const uint &i1, const uint &i2) -> bool {
-       return v_dim_scores[i1] < v_dim_scores[i2];
+        return v_dim_scores[i1] < v_dim_scores[i2];
     });
 
     v_prime_dims.resize(v_primes.size());
     next_util::print_array("selected dims: ", &v_prime_dims[0], v_primes.size());
-//    std::cout << "test: " << std_dev_dims[v_prime_d[0]] << " : " << std_dev_dims[v_prime_d[1]] << std::endl;
+}
 
-    float e_partition = e_inner;
-//    int power = 1;
-//    ull max_partitions = INT32_MAX;
-//    ull partition_cnt = INT64_MAX;
-#ifdef MPI_ON
-    // set max_partitions to something smaller
-#endif
-    /*
-    while (partition_cnt > max_partitions) {
-        partition_cnt = 0;
-        for (uint d : v_prime_dims) {
-            ull dim_cells = (v_max_bounds[d] - v_min_bounds[d]) / e_partition;
-            if (dim_cells > partition_cnt) {
-                partition_cnt = dim_cells;
-            }
-        }
-        if (partition_cnt > max_partitions) {
-            e_partition = (float)(e_inner * pow(2, ++power));
-        }
-    }
-     */
+uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
+        s_vec<uint> &v_primes, s_vec<uint> &v_prime_dims, s_vec<uint> &v_index_dims, const uint n_dim,
+        const uint n_points, const uint n_partitions, const float eps_p) {
 
     uint used_partitions = 1;
     for (int p = 0; p < v_primes.size()-1; ++p) {
@@ -340,15 +267,18 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
     used_partitions = 1;
     uint last_d = INT32_MAX;
     for (int p = 0; p < v_primes.size(); ++p) {
-        std::cout << "STARTING prime: " << v_primes[p] << std::endl;
+//        std::cout << "STARTING prime: " << v_primes[p] << std::endl;
         uint n_parts = v_primes[p];
         uint d = v_prime_dims[p];
-        uint n_dim_cells = ((v_max_bounds[d] - v_min_bounds[d]) / e_inner) + 1;
-        std::cout << "d: " << d << " n_dim_cells: " << n_dim_cells << std::endl;
+        uint n_dim_cells = ((v_max_bounds[d] - v_min_bounds[d]) / eps_p) + 1;
+        if (n_parts > n_dim_cells) {
+            return INT32_MAX;
+        }
+//        std::cout << "d: " << d << " n_dim_cells: " << n_dim_cells << std::endl;
         assert(n_parts <= n_dim_cells);
 
         // Count cell points in current dimension
-//        #pragma omp parallel for
+        #pragma omp parallel for
         for (uint i = 0; i < n_points; ++i) {
             uint p_index = i*n_dim;
             assert(p_index < v_index_dims.size());
@@ -357,18 +287,19 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
             if (p > 0) {
                 part_index = v_index_dims[p_index+last_d];
                 assert(part_index < used_partitions);
-//                #pragma omp atomic
+                #pragma omp atomic
                 ++v_partition_point_cnt[part_index];
             } else {
                 v_partition_point_cnt[0] = n_points;
             }
-//            #pragma omp atomic
+            #pragma omp atomic
             ++vv_cell_cnts[part_index][v_index_dims[p_index+d]];
         }
         next_util::print_array("partition points: ", &v_partition_point_cnt[0], used_partitions);
         v_splits.resize(used_partitions*(n_parts-1), 0);
 //        std::cout << "split array size: " << v_splits.size() << std::endl;
         // Make splits
+        #pragma omp parallel for
         for (uint i = 0; i < used_partitions; ++i) {
             uint split_index = i*(n_parts-1);
             long long perfect_score = v_partition_point_cnt[i] / n_parts;
@@ -389,9 +320,6 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
                     if (split_index == (i+1)*(n_parts-1)) {
                         c = n_dim_cells;
                     }
-//                    if (v_splits.size() == n_parts-1) {
-//                        c = n_dim_cells;
-//                    }
                     last_score = INT64_MAX;
                     sum = 0;
                 } else {
@@ -399,9 +327,8 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
                 }
             }
         }
-        next_util::print_array("splits: ", &v_splits[0], v_splits.size());
-
-//#pragma omp parallel for
+//        next_util::print_array("splits: ", &v_splits[0], v_splits.size());
+        #pragma omp parallel for
         for (uint i = 0; i < n_points; ++i) {
             uint p_index = i*n_dim;
             uint part_index = p == 0? 0 : v_index_dims[p_index+last_d];
@@ -417,16 +344,6 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
                 }
             }
             v_index_dims[p_index+d] = partition_id == INT32_MAX? split_index+(n_parts-1) : partition_id;
-            /*
-            for (uint s = 0; s < n_parts; ++s) {
-                if (val <= v_splits[split_index+s]) {
-                    partition_id = split_index+s;
-                    s = n_parts;
-                }
-            }
-            v_index_dims[p_index+d] = partition_id == INT32_MAX? split_index+(n_parts-1) : partition_id;
-             */
-
         }
 
         // cleanup
@@ -436,135 +353,62 @@ void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<f
             std::fill(vv_cell_cnts[i].begin(), vv_cell_cnts[i].end(), 0);
         }
         used_partitions *= n_parts;
-        std::cout << "Used partitions = " << used_partitions << std::endl;
-        for (uint i = 0; i < n_points; ++i) {
-            uint p_index = i*n_dim;
+//        std::cout << "Used partitions = " << used_partitions << std::endl;
+//        for (uint i = 0; i < n_points; ++i) {
+//            uint p_index = i*n_dim;
 //            if (v_index_dims[p_index+d] >= used_partitions) {
 //                std::cout << "Fail: " << v_index_dims[p_index+d] << std::endl;
 //            }
-            assert(v_index_dims[p_index+d] < used_partitions);
-        }
-    }
-
-    v_partition_point_cnt.resize(used_partitions, 0);
-    for (uint i = 0; i < n_points; ++i) {
-        uint p_index = i*n_dim;
-        assert(p_index < v_index_dims.size());
-        ++v_partition_point_cnt[v_index_dims[p_index+last_d]];
-//        assert(v_index_dims[p_index+d] < n_dim_cells);
-//        uint part_index = 0;
-//        if (p > 0) {
-//            part_index = v_index_dims[p_index+last_d];
-//            assert(part_index < used_partitions);
-//                #pragma omp atomic
-//            ++v_partition_point_cnt[part_index];
-//        } else {
-//            v_partition_point_cnt[0] = n_points;
+//            assert(v_index_dims[p_index+d] < used_partitions);
 //        }
-//            #pragma omp atomic
-//        ++vv_cell_cnts[part_index][v_index_dims[p_index+d]];
     }
-    next_util::print_array("final partitions: ", &v_partition_point_cnt[0], used_partitions);
+    return used_partitions;
+}
 
-    /*
-    s_vec<ull> v_n_cells_dim(n_dim);
-    count_cells_per_dim(v_n_cells_dim, v_min_bounds, v_max_bounds, n_dim, e_inner);
-    std::cout << std::endl;
-    next_util::print_array("cell count per dim: ", &v_n_cells_dim[0], n_dim);
+void partition_coords(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
+        std::vector<std::vector<uint>> &vv_part_coord_index, const uint n_dim, const uint n_points,
+        const uint n_partitions, const float eps_p) {
 
-    s_vec<uint> v_min_cell_dims(n_partitions*n_dim);
-    s_vec<uint> v_max_cell_dims(n_partitions*n_dim);
-    auto v_part_sizes = std::make_unique<uint[]>(n_partitions);
-    auto v_part_offsets = std::make_unique<uint[]>(n_partitions);
-    for (uint d = 0; d < n_dim; ++d) {
-        deep_io::get_blocks_meta(v_part_sizes, v_part_offsets, v_n_cells_dim[d], n_partitions);
-        for (uint p = 0; p < n_partitions; ++p) {
-            v_min_cell_dims[p*n_dim+d] = v_part_offsets[p];
-            v_max_cell_dims[p*n_dim+d] = v_part_offsets[p] + v_part_sizes[p];
+    s_vec<uint> v_primes;
+    s_vec<uint> v_prime_dims(n_dim);
+    s_vec<uint> v_index_dims(n_points*n_dim);
+    select_partition_dims(v_coords, v_primes, v_prime_dims, v_min_bounds, v_max_bounds,
+            v_index_dims, n_dim, n_points, n_partitions, eps_p);
+
+    uint used_partitions = partition_dataset(v_min_bounds, v_max_bounds, v_primes, v_prime_dims,
+            v_index_dims, n_dim, n_points, n_partitions, eps_p);
+
+    if (used_partitions == INT32_MAX) {
+        // Unable to partition, epsilon too big
+        vv_part_coord_index[0].resize(n_points);
+        std::iota(vv_part_coord_index[0].begin(), vv_part_coord_index[0].end(), 0);
+    } else {
+        std::vector<uint> v_partition_point_cnt(used_partitions, 0);
+        uint last_d = v_prime_dims[v_prime_dims.size() - 1];
+        #pragma omp parallel for
+        for (uint i = 0; i < n_points; ++i) {
+            uint p_index = i * n_dim;
+            assert(p_index < v_index_dims.size());
+            #pragma omp atomic
+            ++v_partition_point_cnt[v_index_dims[p_index + last_d]];
+        }
+        next_util::print_array("final partition sizes: ", &v_partition_point_cnt[0], used_partitions);
+        assert(vv_part_coord_index.size() == v_partition_point_cnt.size());
+        for (int i = 0; i < v_partition_point_cnt.size(); ++i) {
+            vv_part_coord_index[i].resize(v_partition_point_cnt[i]);
+        }
+        #pragma omp parallel
+        {
+            uint tid = omp_get_thread_num();
+            uint index = 0;
+            for (uint i = 0; i < n_points; ++i) {
+                uint p_index = i * n_dim;
+                if (v_index_dims[p_index + last_d] == tid) {
+                    vv_part_coord_index[tid][index++] = i;
+                }
+            }
         }
     }
-    next_util::print_array("min cells: ", &v_min_cell_dims[0], n_partitions*n_dim);
-    next_util::print_array("max cells: ", &v_max_cell_dims[0], n_partitions*n_dim);
-
-
-
-     */
-
-//    s_vec<uint> v_cells(n_partitions*n_dim);
-//    for (uint p = 0; p < n_partitions; ++p) {
-//        uint index = p*n_dim;
-//        for (uint d = 0; d < n_dim; ++d) {
-//
-//        }
-//    }
-    /*
-    for (uint d1 = 0; d1 < n_dim; ++d1) {
-        uint index = d1*n_dim;
-        for (uint d2 = 0; d2 < n_dim; ++d2) {
-            deep_io::get_block_size()
-        }
-    }
-     */
-
-    /*
-    float e_partition = determine_partition_eps(v_min_bounds, v_max_bounds, n_dim, n_points,
-            n_partitions, e_inner);
-    uint n_cells = sum_cells(v_min_bounds, v_max_bounds, n_dim, e_partition);
-    std::cout << "Total Number of Cells: " << n_cells << std::endl;
-
-    s_vec <int> v_n_cells_dim(n_dim);
-    s_vec <int> v_n_cells_dim_agg(n_dim, 1);
-    count_cells_per_dim(v_n_cells_dim, v_min_bounds, v_max_bounds, n_dim, e_partition);
-    next_util::print_array("cell count per dim: ", &v_n_cells_dim[0], n_dim);
-    for (int i = 1; i < v_n_cells_dim.size(); ++i) {
-        v_n_cells_dim_agg[i] = v_n_cells_dim_agg[i-1] * v_n_cells_dim[i-1];
-    }
-    next_util::print_array("cell count per dim aggregate: ", &v_n_cells_dim_agg[0], n_dim);
-
-    std::vector<int> v_index_dim(n_points * n_dim);
-    std::vector<int> v_cell_points(n_cells);
-//    std::vector<std::vector<uint>> vv_cell_points(n_cells);
-    int index, d_index, cell_dim_sum;
-//    #pragma omp parallel for private(index, d_index, cell_dim_sum)
-    for (uint i = 0; i < n_points; ++i) {
-        uint coord_index = i * n_dim;
-        int tmp[n_dim];
-        index = 0;
-        cell_dim_sum = 1;
-        for (uint d = 0; d < n_dim; ++d) {
-            d_index = (int)((v_coords[coord_index + d] - v_min_bounds[d]) / e_partition);
-            assert(d_index >= 0);
-            v_index_dim[coord_index + d] = d_index;
-            index += d_index*v_n_cells_dim_agg[d];
-            tmp[d] = d_index;
-//            cell_dim_sum *= v_n_cells_dim[d];
-        }
-        if (index >= v_cell_points.size()) {
-            next_util::print_array("overflow: ", &tmp[0], n_dim);
-//            std::cout << "index: " << index << std::endl;
-        }
-        assert(index < v_cell_points.size());
-        #pragma omp atomic
-        ++v_cell_points[index];
-    }
-
-    next_util::print_array("point dist: ", &v_cell_points[0], v_cell_points.size());
-*/
-    /*
-    std::vector<int> v_index_values(n_points);
-
-    #pragma omp parallel for
-    for (uint i = 0; i < n_points; ++i) {
-        uint coord_index = i * n_dim;
-        int index = 1;
-        for (uint d = 0; d < n_dim; ++d) {
-            index *= (int)((v_coords[coord_index + d] - v_min_bounds[d]) / e_partition);
-//            assert(v_dim_cells[(i*n_dim) + d] <= v_max_dim_values[d]);
-        }
-        v_index_values[i] = index;
-    }
-     */
-
 }
 
 uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_dim_cells,
@@ -594,7 +438,7 @@ uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> 
         }
         uint coord_index = (p_index) * n_dim;
         for (uint d = 0; d < n_dim; ++d) {
-            v_dim_cells[(i*n_dim) + d] = floorf((v_coords[coord_index + d] - v_min_bounds[d]) / level_eps);
+            v_dim_cells[(i*n_dim) + d] = floorf((v_coords[coord_index + d] - v_min_bounds[d]) / level_eps)+1;
 //            assert(v_dim_cells[(i*n_dim) + d] <= v_max_dim_values[d]);
         }
     }
@@ -800,10 +644,77 @@ void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
 
 void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
     uint size = n_coords;
+    std::vector<uint> v_index_dims;
+
+    for (int l = 0; l < n_level; ++l) {
+        if (l == 0) {
+            std::cout << "max level: " << n_level << std::endl;
+            std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
+            auto start_timestamp = std::chrono::high_resolution_clock::now();
+            partition_coords(v_coords, v_min_bounds, v_max_bounds, vv_part_coord_index,
+                    n_dim, size, n_threads, e_inner*powf(2, ((float)n_level / 3)));
+            auto end_timestamp = std::chrono::high_resolution_clock::now();
+            std::cout << "check: "
+                    << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
+                    << " milliseconds\n";
+            /*
+            v_index_dims.resize(size*n_dim);
+            fill_point_cell_indexes(v_coords, v_min_bounds, v_index_dims, size, n_dim,
+                    e_inner);
+            // Lambda shenanigans
+            const uint n_dims = n_dim;
+            uint n_cells = 0;
+            #pragma omp parallel reduction(+:n_cells)
+            {
+                uint tid = omp_get_thread_num();
+                uint n_t_cells = 0;
+                if (!vv_part_coord_index[tid].empty()) {
+                    std::sort(vv_part_coord_index[tid].begin(), vv_part_coord_index[tid].end(),
+                            [&n_dims, &v_index_dims](const uint &i1, const uint &i2) -> bool {
+                                const uint ci1 = i1 * n_dims;
+                                const uint ci2 = i2 * n_dims;
+                                for (uint d = 0; d < n_dims; ++d) {
+                                    if (v_index_dims[ci1 + d] < v_index_dims[ci2 + d]) {
+                                        return true;
+                                    }
+                                    if (v_index_dims[ci1 + d] > v_index_dims[ci2 + d]) {
+                                        return false;
+                                    }
+                                }
+                                return false;
+                            });
+                    n_t_cells = 1;
+                    uint ci1 = vv_part_coord_index[tid][0] * n_dim;
+                    for (uint i = 1; i < vv_part_coord_index[tid].size(); ++i) {
+                        uint ci2 = vv_part_coord_index[tid][i] * n_dim;
+                        for (uint d = 0; d < n_dim; ++d) {
+                            if (v_index_dims[ci1 + d] != v_index_dims[ci2 + d]) {
+                                ++n_t_cells;
+                                ci1 = ci2;
+                                d = n_dim;
+                            }
+                        }
+                    }
+                }
+                n_cells += n_t_cells;
+            }
+            std::cout << "level cells: " << n_cells << std::endl;
+             */
+        }
+//        calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
+//                vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
+    }
+
 
     // TODO nodes
-    partition_coords(v_coords, v_min_bounds, v_max_bounds, n_dim, size, n_threads, e_inner);
-
+//    std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
+//    partition_coords(v_coords, v_min_bounds, v_max_bounds, vv_part_coord_index,
+//            n_dim, size, n_threads, e_inner);
+//    std::cout << "Confirm: ";
+//    for (uint i = 0; i < vv_part_coord_index.size(); ++i) {
+//        std::cout << vv_part_coord_index[i].size() << " ";
+//    }
+//    std::cout << std::endl;
 
     std::vector<uint> v_dim_cells;
 
@@ -824,6 +735,8 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
         calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
                 vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
     }
+    std::cout << "level 0 cells: " << vv_cell_ns[0].size() << std::endl;
+
 
 }
 
