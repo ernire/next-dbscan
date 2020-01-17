@@ -191,6 +191,8 @@ void calc_cell_indexes(const float *v_coords, d_vec<uint> &vv_index_map,
             ++level_mod;
         }
         uint coord_index = (p_index) * n_dim;
+//        assert(i < v_index_map.size());
+//        uint point_index = vv_index_map[l][i]*n_dim;
         for (uint d = 0; d < n_dim; ++d) {
             v_index_dims[i*n_dim+d] = (v_coords[coord_index+d] - v_min_bounds[d]) / eps;
         }
@@ -419,7 +421,7 @@ void partition_coords(const float *v_coords, d_vec<uint> &vv_index_map,
 uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_dim_cells,
         d_vec<uint> &vv_index_map, d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns,
         const float level_eps,
-        const int l, const uint size, const uint n_dim, const uint n_threads
+        const int l, const uint size, const uint n_dim
         /*
         d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
@@ -696,16 +698,84 @@ uint sort_and_count_cells(std::vector<uint> &v_coord_index, std::vector<uint> &v
             }
             if (is_new_cell) {
                 v_cell_ns[index] = cnt;
-                cnt = 0;
+                cnt = 1;
                 v_cell_begin[++index] = i;
             } else {
                 ++cnt;
             }
         }
-        assert(index < v_cell_ns.size());
+//        assert(index < v_cell_ns.size());
         v_cell_ns[index] = cnt;
     }
     return n_t_cells;
+}
+
+uint index_level_parallel(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
+        d_vec<uint> &vv_part_coord_index,
+        d_vec<uint> &vv_part_cell_begin,
+        d_vec<uint> &vv_part_cell_ns,
+        std::vector<uint> &v_t_n_cells,
+        std::vector<uint> &v_t_offsets,
+        std::vector<uint> &v_index_dims,
+        d_vec<uint> &vv_index_map, d_vec<uint> &vv_cell_begin, d_vec<uint> &vv_cell_ns,
+        const int l, const uint size, const uint n_dim, const uint n_threads, const float e_inner, const uint n_parallel_level) {
+    vv_index_map[l].resize(size);
+    if (l == 0) {
+        std::iota(vv_index_map[0].begin(), vv_index_map[0].end(), 0);
+        auto start_timestamp = std::chrono::high_resolution_clock::now();
+        partition_coords(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_max_bounds,
+                vv_part_coord_index,n_dim, size, n_threads, e_inner*powf(2, n_parallel_level));
+        auto end_timestamp = std::chrono::high_resolution_clock::now();
+        std::cout << "Partition Data: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
+                  << " milliseconds\n";
+        v_t_offsets[0] = 0;
+        for (uint t = 1; t < n_threads; ++t) {
+            v_t_offsets[t] = v_t_offsets[t-1] + vv_part_coord_index[t-1].size();
+        }
+    } else {
+        #pragma omp parallel
+        {
+            uint tid = omp_get_thread_num();
+            vv_part_coord_index[tid].resize(v_t_n_cells[tid]);
+            std::iota(vv_part_coord_index[tid].begin(), vv_part_coord_index[tid].end(), v_t_offsets[tid]);
+        }
+
+    }
+    v_index_dims.resize(size*n_dim);
+    calc_cell_indexes(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_index_dims, l,
+            n_dim,e_inner*powf(2, (float)l));
+    #pragma omp parallel
+    {
+        uint tid = omp_get_thread_num();
+        v_t_n_cells[tid] = sort_and_count_cells(vv_part_coord_index[tid], v_index_dims,
+                vv_part_cell_begin[tid], vv_part_cell_ns[tid], n_dim);
+        if (tid > 0) {
+            for (uint i = 0; i < vv_part_cell_begin[tid].size(); ++i) {
+                vv_part_cell_begin[tid][i] += v_t_offsets[tid];
+            }
+        }
+        std::copy(vv_part_coord_index[tid].begin(), vv_part_coord_index[tid].end(),
+                std::next(vv_index_map[l].begin(), v_t_offsets[tid]));
+        #pragma omp barrier
+        #pragma omp single
+        {
+            uint n_cells = next_util::sum_array(&v_t_n_cells[0], v_t_n_cells.size());
+            vv_cell_ns[l].resize(n_cells, 0);
+            vv_cell_begin[l].resize(n_cells);
+            v_t_offsets[0] = 0;
+            for (uint t = 1; t < n_threads; ++t) {
+                v_t_offsets[t] = v_t_offsets[t-1] + v_t_n_cells[t-1];
+            }
+        }
+        std::copy(vv_part_cell_begin[tid].begin(), vv_part_cell_begin[tid].end(),
+                std::next(vv_cell_begin[l].begin(), v_t_offsets[tid]));
+        std::copy(vv_part_cell_ns[tid].begin(), vv_part_cell_ns[tid].end(),
+                std::next(vv_cell_ns[l].begin(), v_t_offsets[tid]));
+    }
+//    calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
+//            vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
+    return vv_cell_begin[l].size();
 }
 
 void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
@@ -713,109 +783,25 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
     std::vector<uint> v_index_dims;
     std::vector<uint> v_t_n_cells(n_threads);
     std::vector<uint> v_t_offsets(n_threads);
-    uint n_parallel_level = n_level / 3;
+    int n_parallel_level = n_level / 3;
     std::cout << "max level: " << n_level << ", max parallel level: " << n_parallel_level << std::endl;
     std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
     std::vector<std::vector<uint>> vv_part_cell_begin(n_threads);
     std::vector<std::vector<uint>> vv_part_cell_ns(n_threads);
 
-    for (uint l = 0; l <= n_parallel_level; ++l) {
-        vv_index_map[l].resize(size);
-        if (l == 0) {
-            std::iota(vv_index_map[0].begin(), vv_index_map[0].end(), 0);
-            auto start_timestamp = std::chrono::high_resolution_clock::now();
-            partition_coords(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_max_bounds,
-                    vv_part_coord_index,n_dim, size, n_threads, e_inner*powf(2, n_parallel_level));
-            auto end_timestamp = std::chrono::high_resolution_clock::now();
-            std::cout << "Partition Data: "
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
-                    << " milliseconds\n";
-            v_t_offsets[0] = 0;
-            for (uint t = 1; t < n_threads; ++t) {
-                v_t_offsets[t] = v_t_offsets[t-1] + vv_part_coord_index[t-1].size();
-            }
+    for (int l = 0; l < n_level; ++l) {
+        if (l <= n_parallel_level) {
+            size = index_level_parallel(v_coords, v_min_bounds, v_max_bounds, vv_part_coord_index,
+                    vv_part_cell_begin, vv_part_cell_ns, v_t_n_cells, v_t_offsets,
+                    v_index_dims, vv_index_map, vv_cell_begin, vv_cell_ns, l, size,
+                    n_dim, n_threads, e_inner, n_parallel_level);
         } else {
-            #pragma omp parallel
-            {
-                uint tid = omp_get_thread_num();
-                vv_part_coord_index[tid].resize(v_t_n_cells[tid]);
-                std::iota(vv_part_coord_index[tid].begin(), vv_part_coord_index[tid].end(), v_t_offsets[tid]);
-            }
-
+            size = index_level(v_coords, v_min_bounds, v_index_dims, vv_index_map, vv_cell_begin,
+                    vv_cell_ns[l], v_eps_levels[l], l, size, n_dim);
         }
-        v_index_dims.resize(size*n_dim);
-        calc_cell_indexes(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_index_dims, l,
-                n_dim,e_inner*powf(2, (float)l));
-        #pragma omp parallel
-        {
-            uint tid = omp_get_thread_num();
-            v_t_n_cells[tid] = sort_and_count_cells(vv_part_coord_index[tid], v_index_dims,
-                    vv_part_cell_begin[tid], vv_part_cell_ns[tid], n_dim);
-            if (tid > 0) {
-                for (uint i = 0; i < vv_part_cell_begin[tid].size(); ++i) {
-                    vv_part_cell_begin[tid][i] += v_t_offsets[tid];
-                }
-            }
-            std::copy(vv_part_coord_index[tid].begin(), vv_part_coord_index[tid].end(),
-                    std::next(vv_index_map[l].begin(), v_t_offsets[tid]));
-            #pragma omp barrier
-            #pragma omp single
-            {
-                uint n_cells = next_util::sum_array(&v_t_n_cells[0], v_t_n_cells.size());
-                std::cout << "Level l: " << l << " cells no: " << n_cells << std::endl;
-                vv_cell_ns[l].resize(n_cells, 0);
-                vv_cell_begin[l].resize(n_cells);
-                v_t_offsets[0] = 0;
-                for (uint t = 1; t < n_threads; ++t) {
-                    v_t_offsets[t] = v_t_offsets[t-1] + v_t_n_cells[t-1];
-                }
-            }
-            std::copy(vv_part_cell_begin[tid].begin(), vv_part_cell_begin[tid].end(),
-                    std::next(vv_cell_begin[l].begin(), v_t_offsets[tid]));
-            std::copy(vv_part_cell_ns[tid].begin(), vv_part_cell_ns[tid].end(),
-                    std::next(vv_cell_ns[l].begin(), v_t_offsets[tid]));
-        }
-        size = vv_cell_begin[l].size();
         calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
                 vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
     }
-
-
-    // TODO nodes
-//    std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
-//    partition_coords(v_coords, v_min_bounds, v_max_bounds, vv_part_coord_index,
-//            n_dim, size, n_threads, e_inner);
-//    std::cout << "Confirm: ";
-//    for (uint i = 0; i < vv_part_coord_index.size(); ++i) {
-//        std::cout << vv_part_coord_index[i].size() << " ";
-//    }
-//    std::cout << std::endl;
-
-
-    /*
-    std::vector<uint> v_dim_cells;
-    for (int l = n_parallel_level+1; l < n_level; ++l) {
-        std::vector<ull> v_value_map;
-        std::vector<std::vector<uint>> v_bucket(n_threads);
-        std::vector<ull> v_bucket_separator;
-        v_bucket_separator.reserve(n_threads);
-        std::vector<ull> v_bucket_separator_tmp;
-        v_bucket_separator_tmp.reserve(n_threads * n_threads);
-        t_uint_iterator v_iterator(n_threads);
-//        size = index_level_and_get_cells(v_coords, v_min_bounds, vv_index_map, vv_cell_begin,
-//                vv_cell_ns[l], v_value_map, v_bucket, v_bucket_separator, v_bucket_separator_tmp,
-//                v_iterator, size, l, n_dim, 0, v_eps_levels[l],
-//                &v_dims_mult[l * n_dim], n_threads);
-        size = index_level(v_coords, v_min_bounds, v_dim_cells, vv_index_map, vv_cell_begin,
-                vv_cell_ns[l], v_eps_levels[l], l, size, n_dim, n_threads);
-        calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
-                vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
-    }
-    for (int i = 0; i < n_level; ++i) {
-        std::cout << "level: " << i << " cells: " << vv_cell_ns[i].size() << std::endl;
-    }
-    */
-
 }
 
 uint fill_range_table(const float *v_coords, s_vec<uint> &v_index_map_level,
