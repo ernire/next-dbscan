@@ -25,6 +25,7 @@ SOFTWARE.
 #include <memory>
 #include <chrono>
 #include <cassert>
+#include <random>
 #include "nextdbscan_omp.h"
 #include "deep_io.h"
 #include "next_util.h"
@@ -73,110 +74,6 @@ inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, 
     return tmp <= e2;
 }
 
-void determine_index_values(const float *v_coords,
-        s_vec<float> &v_min_bounds,
-        d_vec<uint> &vv_index_map,
-        d_vec<uint> &vv_cell_begin,
-        std::vector<ull> &v_value_map,
-        const ull *dims_mult,
-        const int l, const uint size, const uint offset, const uint max_d, const float level_eps,
-        const uint node_offset) noexcept {
-    for (uint i = 0; i < size; ++i) {
-        uint p_index = i + offset;
-        int level_mod = 1;
-        while (l - level_mod >= 0) {
-            p_index = vv_index_map[l - level_mod][vv_cell_begin[l - level_mod][p_index]];
-            ++level_mod;
-        }
-        uint coord_index = (p_index + node_offset) * max_d;
-        v_value_map[offset + i] = get_cell_index(&v_coords[coord_index], v_min_bounds,
-                dims_mult, max_d, level_eps);
-    }
-}
-
-void sort_indexes_omp(std::unique_ptr<uint[]> &v_omp_sizes, std::unique_ptr<uint[]> &v_omp_offsets,
-        s_vec<uint> &v_index_map,
-        std::vector<ull> &v_value_map,
-        std::vector<std::vector<uint>> &v_bucket,
-        std::vector<ull> &v_bucket_seperator,
-        std::vector<ull> &v_bucket_seperator_tmp,
-        t_uint_iterator &v_iterator,
-        const uint tid, const uint n_threads, const bool is_parallel_sort) noexcept {
-    v_bucket[tid].clear();
-    v_iterator[tid].clear();
-    if (is_parallel_sort) {
-        std::sort(std::next(v_index_map.begin(), v_omp_offsets[tid]),
-                std::next(v_index_map.begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
-                [&](const auto &i1, const auto &i2) -> bool {
-                    return v_value_map[i1] < v_value_map[i2];
-                });
-        #pragma omp barrier
-        #pragma omp single
-        {
-            v_bucket_seperator.clear();
-            v_bucket_seperator_tmp.clear();
-            for (uint t = 0; t < n_threads; ++t) {
-                for (uint i = 0; i < n_threads - 1; ++i) {
-                    uint index = v_omp_offsets[t] + ((v_omp_sizes[t] / n_threads) * (i + 1));
-                    v_bucket_seperator_tmp.push_back(v_value_map[v_index_map[index]]);
-                }
-            }
-            std::sort(v_bucket_seperator_tmp.begin(), v_bucket_seperator_tmp.end());
-            for (uint i = n_threads / 2; i < v_bucket_seperator_tmp.size(); i += n_threads) {
-                if (v_bucket_seperator.empty()) {
-                    v_bucket_seperator.push_back(v_bucket_seperator_tmp[i]);
-                } else if (v_bucket_seperator.size() == n_threads - 2) {
-                    v_bucket_seperator.push_back(v_bucket_seperator_tmp[i - 1]);
-                } else {
-                    v_bucket_seperator.push_back(
-                            (v_bucket_seperator_tmp[i - 1] + v_bucket_seperator_tmp[i]) / 2);
-                }
-            }
-        } // end single
-        auto iter_begin = std::next(v_index_map.begin(), v_omp_offsets[tid]);
-        auto iter_end = std::next(v_index_map.begin(), v_omp_offsets[tid] + v_omp_sizes[tid]);
-        v_iterator[tid].push_back(iter_begin);
-        for (auto &separator : v_bucket_seperator) {
-            auto iter = std::lower_bound(
-                    iter_begin,
-                    iter_end,
-                    separator,
-                    [&v_value_map](const auto &i1, const auto &val) -> bool {
-                        return v_value_map[i1] < val;
-                    });
-            v_iterator[tid].push_back(iter);
-        }
-        v_iterator[tid].push_back(std::next(v_index_map.begin(),
-                v_omp_offsets[tid] + v_omp_sizes[tid]));
-        #pragma omp barrier
-        for (uint t_index = 0; t_index < n_threads; ++t_index) {
-            v_bucket[tid].insert(v_bucket[tid].end(), v_iterator[t_index][tid], v_iterator[t_index][tid + 1]);
-        }
-        #pragma omp barrier
-        std::sort(v_bucket[tid].begin(), v_bucket[tid].end(), [&](const auto &i1, const auto &i2) -> bool {
-            return v_value_map[i1] < v_value_map[i2];
-        });
-        #pragma omp barrier
-        #pragma omp single
-        {
-            for (uint t = 1; t < n_threads; ++t) {
-                v_bucket[0].insert(v_bucket[0].end(), v_bucket[t].begin(), v_bucket[t].end());
-            }
-            v_index_map.clear();
-            v_index_map.insert(v_index_map.end(), std::make_move_iterator(v_bucket[0].begin()),
-                    std::make_move_iterator(v_bucket[0].end()));
-        }
-    } else if (!is_parallel_sort) {
-        #pragma omp barrier
-        #pragma omp single
-        {
-            std::sort(v_index_map.begin(), v_index_map.end(), [&](const auto &i1, const auto &i2) -> bool {
-                return v_value_map[i1] < v_value_map[i2];
-            });
-        }
-    }
-}
-
 void calc_cell_indexes(const float *v_coords, d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin,
         s_vec<float> &v_min_bounds,
@@ -206,7 +103,7 @@ void select_partition_dims(const float *v_coords,
         s_vec<uint> &v_prime_dims,
         s_vec<float> &v_min_bounds,
         s_vec<float> &v_max_bounds, s_vec<uint> &v_index_dims,
-        const uint n_dim, const uint n_points, const uint n_partitions, const float eps_p) {
+        const uint n_dim, const uint n_points, const uint n_partitions, const float eps_p) noexcept {
     s_vec<uint> v_dim_cells(n_dim);
     s_vec<float> v_perfect_cell_score(n_dim);
     for (uint d = 0; d < n_dim; ++d) {
@@ -214,7 +111,7 @@ void select_partition_dims(const float *v_coords,
         v_perfect_cell_score[d] = (float)n_points / v_dim_cells[d];
     }
     next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
-    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
+//    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
 
     calc_cell_indexes(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_index_dims, 0, n_dim, eps_p);
     s_vec<int> v_cell_cnt;
@@ -228,7 +125,7 @@ void select_partition_dims(const float *v_coords,
         v_cell_cnt.resize(v_dim_cells[d], 0);
         for (uint i = 0; i < n_points; ++i) {
             uint point_index = i * n_dim;
-            assert(v_index_dims[point_index+d] < v_cell_cnt.size());
+//            assert(v_index_dims[point_index+d] < v_cell_cnt.size());
             ++v_cell_cnt[v_index_dims[point_index+d]];
         }
         double score = 0;
@@ -240,32 +137,49 @@ void select_partition_dims(const float *v_coords,
         v_dim_scores[d] = score / v_dim_cells[d];
     }
     next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
-
-
-    next_util::get_small_prime_factors(v_primes, n_partitions);
-    next_util::print_array("prime factors: ", &v_primes[0], v_primes.size());
-
-    // streamline primes factors if necessary
-    while (v_primes.size() > n_dim) {
-        v_primes[v_primes.size()-2] *= v_primes[v_primes.size()-1];
-        v_primes.resize(v_primes.size()-1);
-        std::sort(v_primes.begin(), v_primes.end(), std::greater<>());
+    uint valid_scores = 0;
+    uint best_d = 0;
+    uint best_score = INT32_MAX;
+    for (uint d = 0; d < n_dim; ++d) {
+        if (v_dim_scores[d] != INT32_MAX) {
+            ++valid_scores;
+            if (v_dim_scores[d] < best_score) {
+                best_score = v_dim_scores[d];
+                best_d = d;
+            }
+        }
     }
-    next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
+    if (valid_scores == 0) {
+        v_primes.push_back(n_partitions);
+        v_prime_dims.push_back(0);
+    } else if (v_dim_cells[best_d] > 2*n_partitions) {
+        v_primes.push_back(n_partitions);
+        v_prime_dims.clear();
+        v_prime_dims.push_back(best_d);
+    } else {
+        next_util::get_small_prime_factors(v_primes, n_partitions);
+//        next_util::print_array("prime factors: ", &v_primes[0], v_primes.size());
 
-    std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
-    std::sort(v_prime_dims.begin(), v_prime_dims.end(), [&v_dim_scores] (const uint &i1, const uint &i2) -> bool {
-        return v_dim_scores[i1] < v_dim_scores[i2];
-    });
+        // streamline primes factors if necessary
+        while (v_primes.size() > valid_scores) {
+            v_primes[v_primes.size() - 2] *= v_primes[v_primes.size() - 1];
+            v_primes.resize(v_primes.size() - 1);
+            std::sort(v_primes.begin(), v_primes.end(), std::greater<>());
+        }
+        next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
 
-    v_prime_dims.resize(v_primes.size());
+        std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
+        std::sort(v_prime_dims.begin(), v_prime_dims.end(), [&v_dim_scores](const uint &i1, const uint &i2) -> bool {
+            return v_dim_scores[i1] < v_dim_scores[i2];
+        });
+        v_prime_dims.resize(v_primes.size());
+    }
     next_util::print_array("selected dims: ", &v_prime_dims[0], v_primes.size());
 }
 
 uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
         s_vec<uint> &v_primes, s_vec<uint> &v_prime_dims, s_vec<uint> &v_index_dims, const uint n_dim,
-        const uint n_points, const uint n_partitions, const float eps_p) {
-
+        const uint n_points, const uint n_partitions, const float eps_p) noexcept {
     uint used_partitions = 1;
     for (int p = 0; p < v_primes.size()-1; ++p) {
         used_partitions *= v_primes[p];
@@ -273,7 +187,6 @@ uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
     std::vector<uint> v_point_parts(n_partitions);
     std::vector<std::vector<uint>> vv_cell_cnts(used_partitions);
     std::vector<uint> v_partition_point_cnt(used_partitions, 0);
-
     for (uint i = 0; i < used_partitions; ++i) {
         vv_cell_cnts[i].resize(n_points, 0);
     }
@@ -281,26 +194,23 @@ uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
     used_partitions = 1;
     uint last_d = INT32_MAX;
     for (int p = 0; p < v_primes.size(); ++p) {
-//        std::cout << "STARTING prime: " << v_primes[p] << std::endl;
         uint n_parts = v_primes[p];
         uint d = v_prime_dims[p];
         uint n_dim_cells = ((v_max_bounds[d] - v_min_bounds[d]) / eps_p) + 1;
         if (n_parts > n_dim_cells) {
             return INT32_MAX;
         }
-//        std::cout << "d: " << d << " n_dim_cells: " << n_dim_cells << std::endl;
-        assert(n_parts <= n_dim_cells);
-
+//        assert(n_parts <= n_dim_cells);
         // Count cell points in current dimension
         #pragma omp parallel for
         for (uint i = 0; i < n_points; ++i) {
             uint p_index = i*n_dim;
-            assert(p_index < v_index_dims.size());
-            assert(v_index_dims[p_index+d] < n_dim_cells);
+//            assert(p_index < v_index_dims.size());
+//            assert(v_index_dims[p_index+d] < n_dim_cells);
             uint part_index = 0;
             if (p > 0) {
                 part_index = v_index_dims[p_index+last_d];
-                assert(part_index < used_partitions);
+//                assert(part_index < used_partitions);
                 #pragma omp atomic
                 ++v_partition_point_cnt[part_index];
             } else {
@@ -309,25 +219,21 @@ uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
             #pragma omp atomic
             ++vv_cell_cnts[part_index][v_index_dims[p_index+d]];
         }
-        next_util::print_array("partition points: ", &v_partition_point_cnt[0], used_partitions);
+//        next_util::print_array("partition points: ", &v_partition_point_cnt[0], used_partitions);
         v_splits.resize(used_partitions*(n_parts-1), 0);
-//        std::cout << "split array size: " << v_splits.size() << std::endl;
         // Make splits
         #pragma omp parallel for
         for (uint i = 0; i < used_partitions; ++i) {
             uint split_index = i*(n_parts-1);
             long long perfect_score = v_partition_point_cnt[i] / n_parts;
-//            std::cout << "Perfect score: " << perfect_score << " for i: " << i << std::endl;
             long long score = 0;
             long long last_score = INT64_MAX;
             long long sum = 0;
             for (uint c = 0; c < n_dim_cells; ++c) {
                 sum += vv_cell_cnts[i][c];
-//                std::cout << "sum: " << sum << " where c: " << c << std::endl;
                 score = perfect_score - sum;
                 if (labs(last_score) < labs(score)) {
                     --c;
-//                    std::cout << "set split index " << split_index << " to " << c << std::endl;
                     v_splits[split_index++] = c;
                     assert(split_index-(i*(n_parts-1)) < n_parts);
                     perfect_score += last_score;
@@ -349,8 +255,8 @@ uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
             uint split_index = part_index*n_parts;
             uint val = v_index_dims[p_index+d];
             uint partition_id = INT32_MAX;
-            assert(p_index < v_index_dims.size());
-            assert(v_index_dims[p_index+d] < n_dim_cells);
+//            assert(p_index < v_index_dims.size());
+//            assert(v_index_dims[p_index+d] < n_dim_cells);
             for (uint s = 0; s < n_parts-1; ++s) {
                 if (val <= v_splits[(part_index*(n_parts-1))+s]) {
                     partition_id = split_index+s;
@@ -374,8 +280,7 @@ uint partition_dataset(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
 void partition_coords(const float *v_coords, d_vec<uint> &vv_index_map,
         d_vec<uint> &vv_cell_begin, s_vec<float> &v_min_bounds,
         s_vec<float> &v_max_bounds, std::vector<std::vector<uint>> &vv_part_coord_index,
-        const uint n_dim, const uint n_points, const uint n_partitions, const float eps_p) {
-
+        const uint n_dim, const uint n_points, const uint n_partitions, const float eps_p) noexcept {
     s_vec<uint> v_primes;
     s_vec<uint> v_prime_dims(n_dim);
     s_vec<uint> v_index_dims(n_points*n_dim);
@@ -421,20 +326,8 @@ void partition_coords(const float *v_coords, d_vec<uint> &vv_index_map,
 uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_dim_cells,
         d_vec<uint> &vv_index_map, d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns,
         const float level_eps,
-        const int l, const uint size, const uint n_dim
-        /*
-        d_vec<uint> &vv_index_map,
-        d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
-        std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
-        std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint n_dim,
-        uint node_offset, float level_eps, ull *dims_mult, uint n_threads
-         */
-        ) noexcept {
-
-    // Find epsilon which supports int
-
+        const int l, const uint size, const uint n_dim) noexcept {
     v_dim_cells.resize(size * n_dim);
-
     #pragma omp parallel for
     for (uint i = 0; i < size; ++i) {
         uint p_index = i;
@@ -452,7 +345,7 @@ uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> 
     vv_index_map[l].resize(size);
     std::iota(vv_index_map[l].begin(), vv_index_map[l].end(), 0);
     std::sort(vv_index_map[l].begin(), vv_index_map[l].end(),
-            [&size, &n_dim, &v_dim_cells](const uint &i1, const uint &i2) -> bool {
+            [&n_dim, &v_dim_cells](const uint &i1, const uint &i2) -> bool {
                 const uint ci1 = i1 * n_dim;
                 const uint ci2 = i2 * n_dim;
                 for (uint d = 0; d < n_dim; ++d) {
@@ -503,105 +396,6 @@ uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> 
     }
     v_cell_ns[index] = n_cnt;
     return v_cell_ns.size();
-}
-
-uint index_level_and_get_cells(float *v_coords, s_vec<float> &v_min_bounds, d_vec<uint> &vv_index_map,
-        d_vec<uint> &vv_cell_begin, s_vec<uint> &v_cell_ns, std::vector<ull> &v_value_map,
-        std::vector<std::vector<uint>> &v_bucket, std::vector<ull> &v_bucket_separator,
-        std::vector<ull> &v_bucket_separator_tmp, t_uint_iterator &v_iterator, uint size, int l, uint max_d,
-        uint node_offset, float level_eps, ull *dims_mult, uint n_threads) noexcept {
-    vv_index_map[l].resize(size);
-    v_value_map.resize(size);
-    uint unique_new_cells = 0;
-    uint no_of_cells[n_threads];
-    auto v_omp_sizes = std::make_unique<uint[]>(n_threads);
-    auto v_omp_offsets = std::make_unique<uint[]>(n_threads);
-    bool is_parallel_sort = true;
-    deep_io::get_blocks_meta(v_omp_sizes, v_omp_offsets, size, n_threads);
-    for (uint t = 0; t < n_threads; ++t) {
-        no_of_cells[t] = 0;
-        if (v_omp_sizes[t] == 0)
-            is_parallel_sort = false;
-    }
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        if (l == 0) {
-            v_bucket[tid].reserve(v_omp_sizes[tid]);
-        }
-        std::iota(std::next(vv_index_map[l].begin(), v_omp_offsets[tid]),
-                std::next(vv_index_map[l].begin(), v_omp_offsets[tid] + v_omp_sizes[tid]),
-                v_omp_offsets[tid]);
-        #pragma omp barrier
-        determine_index_values(v_coords, v_min_bounds, vv_index_map, vv_cell_begin, v_value_map,
-                dims_mult, l, v_omp_sizes[tid], v_omp_offsets[tid], max_d, level_eps, node_offset);
-        sort_indexes_omp(v_omp_sizes, v_omp_offsets, vv_index_map[l], v_value_map, v_bucket,
-                v_bucket_separator, v_bucket_separator_tmp, v_iterator, tid, n_threads, is_parallel_sort);
-        #pragma omp barrier
-        if (v_omp_sizes[tid] > 0) {
-            uint new_cells = 1;
-            uint index = vv_index_map[l][v_omp_offsets[tid]];
-            ull last_value = v_value_map[index];
-            // boundary correction
-            if (tid > 0) {
-                index = vv_index_map[l][v_omp_offsets[tid] - 1];
-                if (v_value_map[index] == last_value)
-                    --new_cells;
-            }
-            for (uint i = 1; i < v_omp_sizes[tid]; ++i) {
-                index = vv_index_map[l][v_omp_offsets[tid] + i];
-                if (v_value_map[index] != last_value) {
-                    last_value = v_value_map[index];
-                    ++new_cells;
-                }
-            }
-            no_of_cells[tid] = new_cells;
-            #pragma omp atomic
-            unique_new_cells += new_cells;
-        }
-        #pragma omp barrier
-        #pragma omp single
-        {
-            vv_cell_begin[l].resize(unique_new_cells);
-            v_cell_ns.resize(unique_new_cells);
-        }
-
-        if (no_of_cells[tid] > 0) {
-            uint cell_offset = 0;
-            for (uint t = 0; t < tid; ++t) {
-                cell_offset += no_of_cells[t];
-            }
-            uint index_map_offset = v_omp_offsets[tid];
-            ull last_value = v_value_map[vv_index_map[l][index_map_offset]];
-            // boundary corrections
-            if (index_map_offset > 0) {
-                if (v_value_map[vv_index_map[l][index_map_offset - 1]] == last_value) {
-                    while (v_value_map[vv_index_map[l][index_map_offset]] == last_value
-                           && index_map_offset < v_value_map.size()) {
-                        ++index_map_offset;
-                    }
-                    last_value = v_value_map[vv_index_map[l][index_map_offset]];
-                }
-            }
-            vv_cell_begin[l][cell_offset] = index_map_offset;
-            uint cell_cnt = 1;
-            for (uint i = index_map_offset; cell_cnt < no_of_cells[tid]; ++i) {
-                if (v_value_map[vv_index_map[l][i]] != last_value) {
-                    last_value = v_value_map[vv_index_map[l][i]];
-                    vv_cell_begin[l][cell_offset + cell_cnt] = i;
-                    ++cell_cnt;
-                }
-            }
-        }
-        #pragma omp barrier
-        #pragma omp for
-        for (uint i = 0; i < unique_new_cells - 1; ++i) {
-            v_cell_ns[i] = vv_cell_begin[l][i + 1] - vv_cell_begin[l][i];
-        }
-
-    } // end parallel
-    v_cell_ns[unique_new_cells - 1] = v_value_map.size() - vv_cell_begin[l][unique_new_cells - 1];
-    return unique_new_cells;
 }
 
 void calculate_level_cell_bounds(float *v_coords, s_vec<uint> &v_cell_begins,
@@ -718,7 +512,8 @@ uint index_level_parallel(const float *v_coords, s_vec<float> &v_min_bounds, s_v
         std::vector<uint> &v_t_offsets,
         std::vector<uint> &v_index_dims,
         d_vec<uint> &vv_index_map, d_vec<uint> &vv_cell_begin, d_vec<uint> &vv_cell_ns,
-        const int l, const uint size, const uint n_dim, const uint n_threads, const float e_inner, const uint n_parallel_level) {
+        const int l, const uint size, const uint n_dim, const uint n_threads, const float e_inner,
+        const uint n_parallel_level) noexcept {
     vv_index_map[l].resize(size);
     if (l == 0) {
         std::iota(vv_index_map[0].begin(), vv_index_map[0].end(), 0);
@@ -773,8 +568,6 @@ uint index_level_parallel(const float *v_coords, s_vec<float> &v_min_bounds, s_v
         std::copy(vv_part_cell_ns[tid].begin(), vv_part_cell_ns[tid].end(),
                 std::next(vv_cell_ns[l].begin(), v_t_offsets[tid]));
     }
-//    calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
-//            vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
     return vv_cell_begin[l].size();
 }
 
@@ -804,80 +597,10 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
     }
 }
 
-uint fill_range_table(const float *v_coords, s_vec<uint> &v_index_map_level,
-        const uint size1, const uint size2, std::vector<bool> &v_range_table,
-        const uint begin1, const uint begin2, const uint max_d, const float e2) noexcept {
-    uint hits = 0;
-    uint index = 0;
-    uint total_size = size1 * size2;
-    std::fill(v_range_table.begin(), v_range_table.begin() + total_size, false);
-    for (uint k1 = 0; k1 < size1; ++k1) {
-        uint p1 = v_index_map_level[begin1 + k1];
-        for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-            uint p2 = v_index_map_level[begin2 + k2];
-            if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
-                v_range_table[index] = true;
-                ++hits;
-            }
-        }
-    }
-    return hits;
-}
-
-void update_points(s_vec<uint> &v_index_map_level, s_vec<uint> &v_cell_nps,
-        s_vec<uint> &v_point_nps, uint *v_range_cnt, const uint size, const uint begin,
-        const uint c) noexcept {
-    uint min_change = INT32_MAX;
-    for (uint k = 0; k < size; ++k) {
-        if (v_range_cnt[k] < min_change)
-            min_change = v_range_cnt[k];
-    }
-    if (min_change > 0) {
-        #pragma omp atomic
-        v_cell_nps[c] += min_change;
-    }
-    for (uint k = 0; k < size; ++k) {
-        if (min_change > 0)
-            v_range_cnt[k] -= min_change;
-        if (v_range_cnt[k] > 0) {
-            uint p = v_index_map_level[begin + k];
-            #pragma omp atomic
-            v_point_nps[p] += v_range_cnt[k];
-        }
-    }
-}
-
-bool update_cell_pair_nn(s_vec<uint> &v_index_map_level, const uint size1, const uint size2,
-        std::vector<uint> &v_cell_nps, std::vector<uint> &v_point_nps, std::vector<bool> &v_range_table,
-        std::vector<uint> &v_range_count,
-        const uint c1, const uint begin1, const uint c2, const uint begin2,
-        const bool is_update1, const bool is_update2) noexcept {
-    std::fill(v_range_count.begin(), std::next(v_range_count.begin() + (size1 + size2)), 0);
-    uint index = 0;
-    for (uint k1 = 0; k1 < size1; ++k1) {
-        for (uint k2 = 0; k2 < size2; ++k2, ++index) {
-            if (v_range_table[index]) {
-                if (is_update1)
-                    ++v_range_count[k1];
-                if (is_update2)
-                    ++v_range_count[size1 + k2];
-            }
-        }
-    }
-    if (is_update1) {
-        update_points(v_index_map_level, v_cell_nps, v_point_nps, &v_range_count[0], size1, begin1, c1);
-    }
-    if (is_update2) {
-        update_points(v_index_map_level, v_cell_nps, v_point_nps, &v_range_count[size1], size2, begin2, c2);
-    }
-    return (is_update1 || is_update2);
-}
-
 uint8_t process_pair_proximity(const float *v_coords,
         s_vec<uint> &v_index_maps,
         s_vec<uint> &v_point_nps,
         s_vec<uint> &v_cell_ns,
-        std::vector<bool> &v_range_table,
         std::vector<uint> &v_range_cnt,
         s_vec<uint> &v_cell_nps,
         const uint max_d, const float e2, const uint m,
@@ -885,9 +608,33 @@ uint8_t process_pair_proximity(const float *v_coords,
     uint8_t are_connected = NOT_CONNECTED;
     uint size1 = v_cell_ns[c1];
     uint size2 = v_cell_ns[c2];
-    uint hits = fill_range_table(v_coords, v_index_maps, size1, size2,
-            v_range_table, begin1, begin2, max_d, e2);
-    if (hits == size1*size2) {
+    std::fill(v_range_cnt.begin(), std::next(v_range_cnt.begin(), size1+size2), 0);
+    for (uint k1 = 0; k1 < size1; ++k1) {
+        uint p1 = v_index_maps[begin1 + k1];
+        for (uint k2 = 0; k2 < size2; ++k2) {
+            uint p2 = v_index_maps[begin2 + k2];
+            if (dist_leq(&v_coords[p1 * max_d], &v_coords[p2 * max_d], max_d, e2)) {
+                ++v_range_cnt[k1];
+                ++v_range_cnt[size1+k2];
+            }
+        }
+    }
+    ull hits = 0;
+    ull last_hits = 0;
+    for (uint i = 0; i < size1+size2; ++i) {
+        last_hits = hits;
+        hits += v_range_cnt[i];
+        if (hits < last_hits) {
+            std::cerr << "OVERFLOW ERROR" << std::endl;
+            exit(-3);
+        }
+    }
+    ull limit = (ull)size1*(ull)size2*2L;
+    if (hits > limit) {
+        std::cerr << "64 bit Overflow detected: " << size1 << " : " << size2 << std::endl;
+    }
+    assert(hits <= limit);
+    if (hits == limit) {
         if (v_cell_nps[c1] < m) {
             #pragma omp atomic
             v_cell_nps[c1] += v_cell_ns[c2];
@@ -898,11 +645,39 @@ uint8_t process_pair_proximity(const float *v_coords,
         }
         are_connected = FULLY_CONNECTED;
     } else if (hits > 0) {
-        if (update_cell_pair_nn(v_index_maps, size1, size2, v_cell_nps, v_point_nps, v_range_table,
-                v_range_cnt, c1, begin1, c2, begin2, v_cell_nps[c1] < m,
-                v_cell_nps[c2] < m)) {
-            are_connected = PARTIALLY_CONNECTED;
+        if (v_cell_nps[c1] < m) {
+            uint min = INT32_MAX;
+            for (uint k1 = 0; k1 < size1; ++k1) {
+                if (v_range_cnt[k1] < min)
+                    min = v_range_cnt[k1];
+            }
+            if (min > 0) {
+                #pragma omp atomic
+                v_cell_nps[c1] += min;
+            }
+            for (uint k1 = 0; k1 < size1; ++k1) {
+                uint p1 = v_index_maps[begin1 + k1];
+                #pragma omp atomic
+                v_point_nps[p1] += v_range_cnt[k1] - min;
+            }
         }
+        if (v_cell_nps[c2] < m) {
+            uint min = INT32_MAX;
+            for (uint k2 = size1; k2 < size1+size2; ++k2) {
+                if (v_range_cnt[k2] < min)
+                    min = v_range_cnt[k2];
+            }
+            if (min > 0) {
+                #pragma omp atomic
+                v_cell_nps[c2] += min;
+            }
+            for (uint k2 = 0; k2 < size2; ++k2) {
+                uint p2 = v_index_maps[begin2 + k2];
+                #pragma omp atomic
+                v_point_nps[p2] += v_range_cnt[k2+size1] - min;
+            }
+        }
+        are_connected = PARTIALLY_CONNECTED;
     }
     return are_connected;
 }
@@ -945,15 +720,15 @@ void update_type(s_vec<uint> &v_index_maps, s_vec<uint> &v_cell_ns,
 }
 
 void nc_tree::infer_types() noexcept {
-    uint max_clusters = 0;
+//    uint max_clusters = 0;
     v_is_core.resize(n_coords, UNKNOWN);
     v_point_labels.resize(n_coords, UNASSIGNED);
-    #pragma omp parallel for reduction(+: max_clusters)
+    #pragma omp parallel for //reduction(+: max_clusters)
     for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
         update_type(vv_index_map[0], vv_cell_ns[0], vv_cell_begin[0],
                 v_leaf_cell_np, v_point_np, v_is_core, v_leaf_cell_type, i, m);
         if (v_leaf_cell_type[i] != UNKNOWN) {
-            ++max_clusters;
+//            ++max_clusters;
             uint begin = vv_cell_begin[0][i];
             int core_p = UNASSIGNED;
             for (uint j = 0; j < vv_cell_ns[0][i]; ++j) {
@@ -1043,7 +818,7 @@ void nc_tree::collect_proximity_queries() noexcept {
     {
         uint tid = omp_get_thread_num();
         vv_edges[tid].reserve(v_tasks.size() / n_threads);
-    #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(dynamic)
         for (uint i = 0; i < v_tasks.size(); ++i) {
             uint l = v_tasks[i].l;
             uint c = v_tasks[i].c;
@@ -1114,6 +889,7 @@ void nc_tree::process_proximity_queries() noexcept {
             v_leaf_cell_np[c2] += vv_cell_ns[0][c1];
         }
     }
+
     uint max_points_in_cell = 0;
     #pragma omp parallel for reduction(max: max_points_in_cell)
     for (uint i = 0; i < vv_cell_ns[0].size(); ++i) {
@@ -1126,16 +902,17 @@ void nc_tree::process_proximity_queries() noexcept {
             max_points_in_cell = vv_cell_ns[0][i];
         }
     }
+
+    // reset
     v_leaf_cell_np = vv_cell_ns[0];
-    std::vector<std::vector<bool>> vv_range_table(n_threads);
     std::vector<std::vector<uint>> vv_range_counts(n_threads);
+//    std::cout << "max points in cell: " << max_points_in_cell << std::endl;
     #pragma omp parallel
     {
         uint tid = omp_get_thread_num();
-        vv_range_table[tid].resize(max_points_in_cell * max_points_in_cell);
         vv_range_counts[tid].resize(max_points_in_cell * 2);
         // TODO guided ?
-        #pragma omp for schedule(dynamic, 8)
+        #pragma omp for schedule(dynamic)
         for (uint i = 0; i < v_edges.size(); i += 2) {
             uint c1 = v_edges[i];
             uint c2 = v_edges[i+1];
@@ -1149,34 +926,16 @@ void nc_tree::process_proximity_queries() noexcept {
             uint begin1 = vv_cell_begin[0][c1];
             uint begin2 = vv_cell_begin[0][c2];
             uint8_t are_connected = process_pair_proximity(v_coords, vv_index_map[0], v_point_np,
-                    vv_cell_ns[0], vv_range_table[tid], vv_range_counts[tid], v_leaf_cell_np,
+                    vv_cell_ns[0], vv_range_counts[tid], v_leaf_cell_np,
                     n_dim, e2, m, c1, begin1, c2, begin2);
             v_edge_conn[i/2] = are_connected;
         }
     }
 }
 
-
-/*
-void _atomic_op(T* address, T value, O op) {
-    T previous = __sync_fetch_and_add(address, 0);
-
-    while (op(value, previous)) {
-        if  (__sync_bool_compare_and_swap(address, previous, value)) {
-            break;
-        } else {
-            previous = __sync_fetch_and_add(address, 0);
-        }
-    }
-}
- */
-//void atomic_min(uint *p_val, uint val) {
-//    uint prev = __sync_fetch_and_add(p_val, 0);
-//}
-
 bool are_core_connected(const float *v_coords, s_vec<uint> &v_index_map, s_vec<uint> &v_cell_begin,
         s_vec<uint> &v_cell_ns, s_vec<uint8_t> &v_is_core,
-        const uint c1, const uint c2, const uint n_dim, const float e2) {
+        const uint c1, const uint c2, const uint n_dim, const float e2) noexcept {
     uint begin1 = v_cell_begin[c1];
     uint begin2 = v_cell_begin[c2];
     for (uint k1 = 0; k1 < v_cell_ns[c1]; ++k1) {
@@ -1198,8 +957,30 @@ bool are_core_connected(const float *v_coords, s_vec<uint> &v_index_map, s_vec<u
     return false;
 }
 
+
+bool flatten_labels(std::vector<int> &v_local_min_labels) noexcept {
+    bool is_update = false;
+    #pragma omp parallel for schedule(guided)
+    for (int i = 0; i < v_local_min_labels.size(); ++i) {
+        if (v_local_min_labels[i] == i || v_local_min_labels[i] == UNASSIGNED)
+            continue;
+        int label = v_local_min_labels[i];
+        bool update = false;
+        while (v_local_min_labels[label] != label) {
+            label = v_local_min_labels[label];
+            update = true;
+        }
+        if (update) {
+            v_local_min_labels[i] = label;
+            is_update = true;
+        }
+    }
+    return is_update;
+}
+
 void nc_tree::determine_cell_labels() noexcept {
-    std::vector<int> v_local_min_labels(vv_cell_begin[0].size(), ROOT_CLUSTER);
+    std::vector<int> v_local_min_labels(vv_cell_begin[0].size());
+    std::iota(v_local_min_labels.begin(), v_local_min_labels.end(), 0);
 
     #pragma omp parallel for
     for (uint i = 0; i < v_local_min_labels.size(); ++i) {
@@ -1223,19 +1004,16 @@ void nc_tree::determine_cell_labels() noexcept {
                 continue;
             }
             if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
-                // Find out if smaller than current
                 if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0], vv_cell_ns[0],
                         v_is_core, c1, c2, n_dim, e2)) {
                     v_edge_conn[i/2] = CORE_CONNECTED;
-                    // TODO atomic min
-                    v_local_min_labels[c_higher] = c_lower;
+                    _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
                 } else {
                     v_edge_conn[i/2] = NOT_CORE_CONNECTED;
                 }
             } else if (conn == FULLY_CONNECTED) {
                 // We know they are connected
-                // TODO atomic min
-                v_local_min_labels[c_higher] = c_lower;
+                _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
             }
         } else if (conn == FULLY_CONNECTED && (v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
                    && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
@@ -1245,65 +1023,11 @@ void nc_tree::determine_cell_labels() noexcept {
                 continue;
             // Permitted race condition (DBSCAN border point labels are not deterministic)
             v_local_min_labels[c_higher] = c_lower;
-        }
-    }
-
-    // flatten
-    #pragma omp parallel for schedule(guided)
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
-        if (v_local_min_labels[i] == ROOT_CLUSTER || v_local_min_labels[i] == UNASSIGNED)
-            continue;
-        uint label = v_local_min_labels[i];
-        bool update = false;
-        while (v_local_min_labels[label] != ROOT_CLUSTER) {
-            label = v_local_min_labels[label];
-            update = true;
-        }
-        if (update)
-            v_local_min_labels[i] = label;
-    }
-    #pragma omp parallel for schedule(guided)
-    for (uint i = 0; i < v_edges.size(); i += 2) {
-        uint c1 = v_edges[i];
-        uint c2 = v_edges[i+1];
-        uint label1, label2;
-        auto conn = v_edge_conn[i/2];
-        if (conn == NOT_CONNECTED) {
-            continue;
-        }
-        if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
-            if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
-                if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0], vv_cell_ns[0],
-                        v_is_core, c1, c2, n_dim, e2)) {
-                    v_edge_conn[i/2] = CORE_CONNECTED;
-                } else {
-                    v_edge_conn[i/2] = NOT_CORE_CONNECTED;
-                }
-                conn = v_edge_conn[i/2];
-            }
-            if (conn == NOT_CORE_CONNECTED) {
-                continue;
-            }
-            label1 = c1;
-            while (v_local_min_labels[label1] != ROOT_CLUSTER) {
-                label1 = v_local_min_labels[label1];
-            }
-            label2 = c2;
-            while (v_local_min_labels[label2] != ROOT_CLUSTER) {
-                label2 = v_local_min_labels[label2];
-            }
-            if (label1 != label2) {
-                // TODO atomic min
-                if (label1 < label2) {
-                    v_local_min_labels[label2] = label1;
-                } else {
-                    v_local_min_labels[label1] = label2;
-                }
-            }
-        } else if ((v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
-                   && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
-            int c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
-            int c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
+        }  else if ((v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
+                    && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
+            // else handle border cell partials
+            c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
+            c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
             if (v_local_min_labels[c_higher] != UNASSIGNED)
                 continue;
             uint begin1 = vv_cell_begin[0][c_lower];
@@ -1323,9 +1047,50 @@ void nc_tree::determine_cell_labels() noexcept {
             }
         }
     }
+    flatten_labels(v_local_min_labels);
+    bool loop = true;
+    while (loop) {
+//        uint cnt = 0;
+        #pragma omp parallel for schedule(guided)
+        for (uint i = 0; i < v_edges.size(); i += 2) {
+            uint c1 = v_edges[i];
+            uint c2 = v_edges[i + 1];
+
+            int c_lower, c_higher;
+            auto conn = v_edge_conn[i / 2];
+            if (conn == NOT_CONNECTED || conn == NOT_CORE_CONNECTED) {
+                continue;
+            }
+            if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
+                assert(v_leaf_cell_type[c1] != UNKNOWN && v_leaf_cell_type[c2] != UNKNOWN);
+                if (v_local_min_labels[c1] != v_local_min_labels[c2]) {
+                    if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
+                        if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0],
+                                vv_cell_ns[0],v_is_core, c1, c2, n_dim, e2)) {
+                            v_edge_conn[i / 2] = CORE_CONNECTED;
+                        } else {
+                            v_edge_conn[i / 2] = NOT_CORE_CONNECTED;
+                        }
+                    }
+                    if (conn == CORE_CONNECTED || conn == FULLY_CONNECTED) {
+                        c_lower = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
+                                v_local_min_labels[c1] : v_local_min_labels[c2];
+                        c_higher = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
+                                v_local_min_labels[c2] : v_local_min_labels[c1];
+//                        ++cnt;
+                        _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
+                    }
+                }
+            }
+        }
+//        std::cout << "loop relabel cnt: " << cnt << std::endl;
+        if (!flatten_labels(v_local_min_labels)) {
+            loop = false;
+        }
+    }
     #pragma omp parallel for
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
-        if (v_local_min_labels[i] == ROOT_CLUSTER || v_local_min_labels[i] == UNASSIGNED)
+    for (int i = 0; i < v_local_min_labels.size(); ++i) {
+        if (v_local_min_labels[i] == i || v_local_min_labels[i] == UNASSIGNED)
             continue;
         if (v_leaf_cell_type[i] != NO_CORES) {
             uint begin = vv_cell_begin[0][i];
