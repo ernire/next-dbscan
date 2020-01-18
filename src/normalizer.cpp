@@ -1,6 +1,3 @@
-//
-// Created by Ernir Erlingsson on 21.5.2019.
-//
 /*
 Copyright (c) 2019, Ernir Erlingsson
 
@@ -28,12 +25,8 @@ SOFTWARE.
 #include <chrono>
 #include <iostream>
 #include <iomanip>
-#include <cassert>
-#include <algorithm>
 #include <vector>
-#include <cstring>
 #include <fstream>
-#include <cstdint>
 
 int count_lines(const std::string &in_file) {
     std::ifstream is(in_file);

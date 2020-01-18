@@ -1,6 +1,3 @@
-//
-// Created by Ernir Erlingsson (ernire@gmail.com, ernire.org) on 20.2.2019.
-//
 /*
 Copyright (c) 2019, Ernir Erlingsson
 
@@ -26,22 +23,45 @@ SOFTWARE.
 #include <iostream>
 #include <getopt.h>
 #include <fstream>
-
+#include <iomanip>
 #include "nextdbscan.h"
+#include "deep_io.h"
+#include "next_util.h"
+
+#ifdef MPI_ON
+#include <mpi.h>
+#endif
 
 void usage() {
-    std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl
-              << "    Format : One data point per line, whereby each line contains the space-seperated values for each dimension '<dim 1> <dim 2> ... <dim n>'" << std::endl
-              << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl
-              << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl
-              << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl
-              << "    -o output    : Output file containing the cluster ids in the same order as the input" << std::endl
-              << "    -h help      : Show this help message" << std::endl;
+    std::cout << "NextDBSCAN compiled for OpenMP";
+#ifdef MPI_ON
+    std::cout << ", MPI";
+#endif
+#ifdef HDF5_ON
+    std::cout << ", HDF5";
+#endif
+#ifdef CUDA_ON
+    std::cout << ", CUDA (V100)";
+#endif
+    std::cout << std::endl << std::endl;
+    std::cout << "Usage: [executable] -m minPoints -e epsilon -t threads [input file]" << std::endl;
+    std::cout << "    -m minPoints : DBSCAN parameter, minimum number of points required to form a cluster, postive integer, required" << std::endl;
+    std::cout << "    -e epsilon   : DBSCAN parameter, maximum neighborhood search radius for cluster, positive floating point, required" << std::endl;
+    std::cout << "    -t threads   : Processing parameter, the number of threads to use, positive integer, defaults to number of cores" << std::endl;
+    std::cout << "    -o output    : Output file containing the cluster ids in the same order as the input" << std::endl;
+    std::cout << "    -h help      : Show this help message" << std::endl << std::endl;
+    std::cout << "Supported Input Types:" << std::endl;
+
+    std::cout << ".csv: Text file with one sample/point per line and features/dimensions separated by a space delimiter, i.e. ' '" << std::endl;
+    std::cout << ".bin: Custom binary format for faster file reads. Use cvs2bin executable to transform csv into bin files." << std::endl;
+#ifdef HDF5_ON
+    std::cout << ".hdf5: The best I/O performance when using multiple nodes." << std::endl;
+#endif
 }
 
-int main(int argc, char* const* argv) {
+int main(int argc, char** argv) {
     char option;
-    int m = -1, max_d = -1;
+    int m = -1;
     float e = -1;
     int n_threads = -1;
     int errors = 0;
@@ -57,16 +77,6 @@ int main(int argc, char* const* argv) {
                     ++errors;
                 } else {
                     m = static_cast<size_t>(minPoints);
-                }
-                break;
-            }
-            case 'd': {
-                ssize_t d = std::stoll(optarg);
-                if (d <= 0L) {
-                    std::cerr << "max dim must be a positive integer number, but was " << optarg << std::endl;
-                    ++errors;
-                } else {
-                    max_d = d;
                 }
                 break;
             }
@@ -111,34 +121,65 @@ int main(int argc, char* const* argv) {
     }
 
     if (errors || m == -1 || e == -1) {
-        std::cout << "Input Error: Please specify the m, e" << std::endl;
+        std::cout << "Input Error: Please specify the m and e parameters" << std::endl << std::endl;
         usage();
         std::exit(EXIT_FAILURE);
     }
-    if (n_threads > 1 && n_threads % 2 == 1) {
-        std::cerr << "The number of threads must be a multiple of 2 (2^0 also allowed)." << std::endl;
+    std::vector<uint> prime_cnt;
+    if (!next_util::small_prime_factor(prime_cnt, n_threads)) {
+        std::cerr << "ERROR: t must be a multiple of at least one of these primes: 2,3,5,7 (t=" << n_threads
+            << ")" << std::endl;
         std::exit(EXIT_FAILURE);
-    } else if (n_threads == -1) {
+    }
+    if (n_threads == -1) {
         n_threads = 1;
     }
-    std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
-        << n_threads << " file:" << input_file << std::endl;
 
-    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file);
-    std::cout << std::endl;
-    std::cout << "Estimated clusters: " << results.clusters << std::endl;
-    std::cout << "Core Points: " << results.core_count << std::endl;
-    std::cout << "Noise Points: " << results.noise << std::endl;
+    uint block_index = 0;
+    uint blocks_no = 1;
 
-    if (output_file.length() > 0) {
-        std::cout << "Writing output to " << output_file << std::endl;
-        std::ofstream os(output_file);
-        for (auto &c : *results.point_clusters) {
-            os << c << '\n';
-        }
-        os.flush();
-        os.close();
-        std::cout << "Done!" << std::endl;
+#ifdef MPI_ON
+    MPI_Init(&argc, &argv);
+    int mpi_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    int mpi_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    block_index = mpi_rank;
+    blocks_no = mpi_size;
+    if (!next_util::small_prime_factor(prime_cnt, blocks_no)) {
+        std::cerr << "ERROR: the used nodes must be a multiple of at least one of these primes: 2,3,5,7 (nodes="
+        << blocks_no << ")" << std::endl;
+        std::exit(EXIT_FAILURE);
     }
+#endif
+
+    if (block_index == 0)
+        std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
+                  << n_threads << " file:" << input_file << std::endl;
+    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, block_index, blocks_no);
+    if (block_index == 0) {
+        std::cout << std::endl;
+        std::cout << "Estimated clusters: " << results.clusters << std::endl;
+        std::cout << "Core Points: " << results.core_count << std::endl;
+        std::cout << "Noise Points: " << results.noise << std::endl;
+
+        if (output_file.length() > 0) {
+            std::cout << "Writing output to " << output_file << std::endl;
+            std::ofstream os(output_file);
+            // TODO
+            for (int i = 0; i < results.n; ++i) {
+                os << results.point_clusters[i] << std::endl;
+            }
+//            for (auto &c : results.point_clusters) {
+//                os << c << '\n';
+//            }
+            os.flush();
+            os.close();
+            std::cout << "Done!" << std::endl;
+        }
+    }
+#ifdef MPI_ON
+    MPI_Finalize();
+#endif
 
 }
