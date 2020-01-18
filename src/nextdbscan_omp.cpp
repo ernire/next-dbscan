@@ -110,7 +110,7 @@ void select_partition_dims(const float *v_coords,
         v_dim_cells[d] = ((v_max_bounds[d] - v_min_bounds[d]) / eps_p) + 1;
         v_perfect_cell_score[d] = (float)n_points / v_dim_cells[d];
     }
-    next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
+//    next_util::print_array("dim cells: ", &v_dim_cells[0], v_dim_cells.size());
 //    next_util::print_array("perfect dim cell score: ", &v_perfect_cell_score[0], v_perfect_cell_score.size());
 
     calc_cell_indexes(v_coords, vv_index_map, vv_cell_begin, v_min_bounds, v_index_dims, 0, n_dim, eps_p);
@@ -136,7 +136,7 @@ void select_partition_dims(const float *v_coords,
         }
         v_dim_scores[d] = score / v_dim_cells[d];
     }
-    next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
+//    next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
     uint valid_scores = 0;
     uint best_d = 0;
     uint best_score = INT32_MAX;
@@ -166,7 +166,7 @@ void select_partition_dims(const float *v_coords,
             v_primes.resize(v_primes.size() - 1);
             std::sort(v_primes.begin(), v_primes.end(), std::greater<>());
         }
-        next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
+//        next_util::print_array("prime factors post streamline: ", &v_primes[0], v_primes.size());
 
         std::iota(v_prime_dims.begin(), v_prime_dims.end(), 0);
         std::sort(v_prime_dims.begin(), v_prime_dims.end(), [&v_dim_scores](const uint &i1, const uint &i2) -> bool {
@@ -577,7 +577,7 @@ void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) 
     std::vector<uint> v_t_n_cells(n_threads);
     std::vector<uint> v_t_offsets(n_threads);
     int n_parallel_level = n_level / 3;
-    std::cout << "max level: " << n_level << ", max parallel level: " << n_parallel_level << std::endl;
+//    std::cout << "max level: " << n_level << ", max parallel level: " << n_parallel_level << std::endl;
     std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
     std::vector<std::vector<uint>> vv_part_cell_begin(n_threads);
     std::vector<std::vector<uint>> vv_part_cell_ns(n_threads);
@@ -633,7 +633,7 @@ uint8_t process_pair_proximity(const float *v_coords,
     if (hits > limit) {
         std::cerr << "64 bit Overflow detected: " << size1 << " : " << size2 << std::endl;
     }
-    assert(hits <= limit);
+//    assert(hits <= limit);
     if (hits == limit) {
         if (v_cell_nps[c1] < m) {
             #pragma omp atomic
@@ -906,7 +906,7 @@ void nc_tree::process_proximity_queries() noexcept {
     // reset
     v_leaf_cell_np = vv_cell_ns[0];
     std::vector<std::vector<uint>> vv_range_counts(n_threads);
-//    std::cout << "max points in cell: " << max_points_in_cell << std::endl;
+    std::cout << "max points in cell: " << max_points_in_cell << std::endl;
     #pragma omp parallel
     {
         uint tid = omp_get_thread_num();
@@ -987,7 +987,7 @@ void nc_tree::determine_cell_labels() noexcept {
         if (v_leaf_cell_type[i] == NO_CORES)
             v_local_min_labels[i] = UNASSIGNED;
     }
-    #pragma omp parallel for schedule(guided)
+    #pragma omp parallel for schedule(dynamic)
     for (uint i = 0; i < v_edges.size(); i += 2) {
         int c1 = v_edges[i];
         int c2 = v_edges[i+1];
@@ -1000,20 +1000,20 @@ void nc_tree::determine_cell_labels() noexcept {
             // both either AC or SC
             c_lower = (c1 < c2)? c1 : c2;
             c_higher = (c1 < c2)? c2 : c1;
-            if (v_local_min_labels[c_higher] <= c_lower) {
+            if (v_local_min_labels[c_higher] <= v_local_min_labels[c_lower]) {
                 continue;
             }
             if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
                 if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0], vv_cell_ns[0],
                         v_is_core, c1, c2, n_dim, e2)) {
                     v_edge_conn[i/2] = CORE_CONNECTED;
-                    _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
+                    _atomic_op(&v_local_min_labels[c_higher], v_local_min_labels[c_lower], std::less<>());
                 } else {
                     v_edge_conn[i/2] = NOT_CORE_CONNECTED;
                 }
             } else if (conn == FULLY_CONNECTED) {
                 // We know they are connected
-                _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
+                _atomic_op(&v_local_min_labels[c_higher], v_local_min_labels[c_lower], std::less<>());
             }
         } else if (conn == FULLY_CONNECTED && (v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
                    && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
@@ -1062,7 +1062,7 @@ void nc_tree::determine_cell_labels() noexcept {
                 continue;
             }
             if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
-                assert(v_leaf_cell_type[c1] != UNKNOWN && v_leaf_cell_type[c2] != UNKNOWN);
+//                assert(v_leaf_cell_type[c1] != UNKNOWN && v_leaf_cell_type[c2] != UNKNOWN);
                 if (v_local_min_labels[c1] != v_local_min_labels[c2]) {
                     if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
                         if (are_core_connected(v_coords, vv_index_map[0], vv_cell_begin[0],

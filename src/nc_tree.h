@@ -114,7 +114,7 @@ public:
                 if (n_dim <= 3) {
                     e_inner = e / sqrtf(3);
                 } else if (n_dim <= 8) {
-                    e_inner = e / sqrtf(3);
+                    e_inner = e / sqrtf(3.5);
                 } else if (n_dim <= 30) {
                     e_inner = e / sqrtf(4);
                 } else if (n_dim <= 80) {
