@@ -94,23 +94,23 @@ private:
 
     void calc_bounds(float *min_bounds, float *max_bounds) noexcept;
 
-    static void calc_dims_mult(ull *dims_mult, uint max_d, s_vec<float> &min_bounds,
-            s_vec<float> &max_bounds, float e_inner) noexcept;
-
     uint determine_data_boundaries() noexcept;
 
-    void index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept;
+    void index_points(s_vec<float> &v_eps_levels) noexcept;
+
+    void collect_all_permutations(int n_partitions);
 
 public:
     uint n_level = 0;
-    const uint n_dim;
-    const uint n_coords;
-    const uint m;
+    const size_t n_dim;
+    const uint64_t n_coords;
+    const uint32_t m;
     const float e;
-    const uint n_threads;
+    const uint32_t n_threads;
 
     explicit nc_tree(float* v_coords, uint n_dim, uint n_coords, float e, uint m, uint n_threads)
         : v_coords(v_coords), n_dim(n_dim), n_coords(n_coords), m(m), e(e), n_threads(n_threads), e2(e*e) {
+        // TODO find a better formula
                 if (n_dim <= 3) {
                     e_inner = e / sqrtf(3);
                 } else if (n_dim <= 8) {
@@ -123,6 +123,8 @@ public:
                     e_inner = e / sqrtf(6);
                 }
             }
+
+    void partition_data(int n_partitions) noexcept;
 
     void build_tree() noexcept;
 

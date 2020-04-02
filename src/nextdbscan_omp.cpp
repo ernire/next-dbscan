@@ -29,6 +29,8 @@ SOFTWARE.
 #include "nextdbscan_omp.h"
 #include "deep_io.h"
 #include "next_util.h"
+#include "nc_tree.h"
+
 
 struct cell_meta {
     uint l, c;
@@ -131,12 +133,12 @@ void select_partition_dims(const float *v_coords,
         double score = 0;
         double tmp = 0;
         for (uint i = 0; i < v_cell_cnt.size(); ++i) {
-            tmp = v_cell_cnt[i] / v_perfect_cell_score[d];
-            score += tmp * tmp;
+            tmp = v_cell_cnt[i] - v_perfect_cell_score[d];
+            score += (tmp * tmp) / n_points;
         }
-        v_dim_scores[d] = score / v_dim_cells[d];
+        v_dim_scores[d] = score;
     }
-//    next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
+    next_util::print_array("dim scores: ", &v_dim_scores[0], v_dim_scores.size());
     uint valid_scores = 0;
     uint best_d = 0;
     uint best_score = INT32_MAX;
@@ -152,11 +154,13 @@ void select_partition_dims(const float *v_coords,
     if (valid_scores == 0) {
         v_primes.push_back(n_partitions);
         v_prime_dims.push_back(0);
-    } else if (v_dim_cells[best_d] > 2*n_partitions) {
+    }
+    /*
+    else if (v_dim_cells[best_d] > 2*n_partitions) {
         v_primes.push_back(n_partitions);
         v_prime_dims.clear();
         v_prime_dims.push_back(best_d);
-    } else {
+    } */else {
         next_util::get_small_prime_factors(v_primes, n_partitions);
 //        next_util::print_array("prime factors: ", &v_primes[0], v_primes.size());
 
@@ -571,7 +575,7 @@ uint index_level_parallel(const float *v_coords, s_vec<float> &v_min_bounds, s_v
     return vv_cell_begin[l].size();
 }
 
-void nc_tree::index_points(s_vec<float> &v_eps_levels, s_vec<ull> &v_dims_mult) noexcept {
+void nc_tree::index_points(s_vec<float> &v_eps_levels) noexcept {
     uint size = n_coords;
     std::vector<uint> v_index_dims;
     std::vector<uint> v_t_n_cells(n_threads);
@@ -1108,3 +1112,6 @@ void nc_tree::determine_cell_labels() noexcept {
         }
     }
 }
+
+
+
