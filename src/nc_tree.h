@@ -98,10 +98,11 @@ private:
 
     void index_points(s_vec<float> &v_eps_levels) noexcept;
 
-    void collect_all_permutations(int n_partitions);
+    static void collect_all_permutations(s_vec<uint32_t> &v_primes, s_vec<size_t> &v_unique_perm,
+            s_vec<size_t> &v_combination_index, size_t n_comb_depth);
 
 public:
-    uint n_level = 0;
+    uint32_t n_level = 0;
     const size_t n_dim;
     const uint64_t n_coords;
     const uint32_t m;
@@ -124,7 +125,7 @@ public:
                 }
             }
 
-    void partition_data(int n_partitions) noexcept;
+    void partition_data(uint32_t n_partitions) noexcept;
 
     void build_tree() noexcept;
 

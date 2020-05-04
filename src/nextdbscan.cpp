@@ -296,7 +296,7 @@ namespace nextdbscan {
 
         measure_duration("MPI partition " + std::to_string(node_index) + ": ", true/*node_index == 0*/, [&]() -> void {
             // TODO handle prime number of partitions
-            nc.partition_data(48);
+            nc.partition_data(n_threads);
         });
 
 

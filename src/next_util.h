@@ -49,6 +49,16 @@ public:
         return sum;
     }
 
+    template<class T>
+    static T sum_array_omp(T *arr, uint32_t size) noexcept {
+        T sum = 0;
+        #pragma omp parallel for reduction(+:sum)
+        for (uint32_t i = 0; i < size; ++i) {
+            sum += arr[i];
+        }
+        return sum;
+    }
+
     template <class T, typename std::enable_if<std::is_arithmetic<T>::value>::type* = nullptr>
     static void random_vector_no_repeat(s_vec<T> &vec, const size_t vec_size, const size_t pool_size) noexcept {
 //        std::default_random_engine generator(std::random_device{}());
@@ -56,9 +66,9 @@ public:
         std::default_random_engine generator(12345);
         random_distribution<T> rnd_dist(0, pool_size);
         auto rnd_gen = std::bind(rnd_dist, generator);
-
+        auto start = vec.size();
         vec.resize(vec_size);
-        for (size_t i = 0; i < vec.size(); ++i) {
+        for (size_t i = start; i < vec.size(); ++i) {
             T tmp = rnd_gen();
             bool insert = true;
             for (auto val : vec) {
@@ -164,5 +174,6 @@ public:
             std::cout << "Level: " << l << " has " << nc_tree.get_no_of_cells(l) << " cells" << std::endl;
         }
     }
+
 };
 #endif //NEXT_DBSCAN_NEXT_UTIL_H
