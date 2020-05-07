@@ -58,10 +58,10 @@ public:
         std::cout << std::endl;
     }
 
-    template<class T>
-    static T sum_array(T *arr, uint32_t size) noexcept {
+    template<typename T, typename K>
+    static T sum_array(T *arr, K size) noexcept {
         T sum = 0;
-        for (uint32_t i = 0; i < size; ++i) {
+        for (auto i = 0; i < size; ++i) {
             sum += arr[i];
         }
         return sum;

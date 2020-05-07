@@ -228,11 +228,9 @@ namespace nextdbscan {
         measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
             nc.build_tree(v_coords, v_min_bounds);
         });
-
+//        cell_processor cp(n_threads);
         // TODO Move data together ?
         next_util::print_tree_meta_data(nc);
-//        nc_tree nc(&v_coords[0], n_dim, n, e, m, n_threads);
-//        nc.init();
         s_vec<long> v_edges;
         nc.collect_edges(v_edges);
         std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
