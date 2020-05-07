@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <stack>
 #include <random>
+#include "nc_tree_new.h"
 
 template<typename T>
 using random_distribution = std::conditional_t<std::is_integral<T>::value,
@@ -21,6 +22,23 @@ using random_distribution = std::conditional_t<std::is_integral<T>::value,
 
 class next_util {
 public:
+
+    template<typename T>
+    static void fill_offsets(s_vec<T> &v_offset, s_vec<T> &v_size) noexcept {
+        v_offset[0] = 0;
+        for (size_t i = 1; i < v_offset.size(); ++i) {
+            v_offset[i] = v_offset[i-1] + v_size[i-1];
+        }
+    }
+
+    template<typename T, typename K>
+    static void print_value_vector(const std::string &name, s_vec<T> &v_val_vec, s_vec<K> &v_index_vec) noexcept {
+        std::cout << name << ": ";
+        for (int i = 0; i < v_index_vec.size(); ++i) {
+            std::cout << v_val_vec[v_index_vec[i]] << " ";
+        }
+        std::cout << std::endl;
+    }
 
     template<class T>
     static void print_vector(const std::string &name, s_vec<T> &v_vec) noexcept {
@@ -168,9 +186,9 @@ public:
         }
     }
 
-    static void print_tree_meta_data(nc_tree &nc_tree) {
+    static void print_tree_meta_data(nc_tree_new &nc_tree) {
         std::cout << "NC-tree levels: " << nc_tree.n_level << std::endl;
-        for (uint32_t l = 0; l < nc_tree.n_level; ++l) {
+        for (long l = 0; l < nc_tree.n_level; ++l) {
             std::cout << "Level: " << l << " has " << nc_tree.get_no_of_cells(l) << " cells" << std::endl;
         }
     }

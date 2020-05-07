@@ -21,7 +21,8 @@ SOFTWARE.
  */
 #include "deep_io.h"
 
-void deep_io::count_lines_and_dimensions(const std::string &in_file, uint &lines, uint &dimensions) noexcept {
+void deep_io::count_lines_and_dimensions(const std::string &in_file, unsigned long &lines,
+        unsigned long &dimensions) noexcept {
     std::ifstream is(in_file);
     std::string line, buf;
     int cnt = 0;
@@ -73,7 +74,7 @@ int deep_io::load_next_samples(s_vec<float> &v_samples) noexcept {
     if (!is_initialized) {
         load_meta_data(ifs, v_samples);
     }
-    uint buffer_samples = std::min(max_samples_per_batch, unread_samples);
+    long buffer_samples = std::min(max_samples_per_batch, unread_samples);
 //    std::cout << "unread samples: " << unread_samples << " : buffer : " << buffer_samples << std::endl;
     uint bytes_read = 0;
     ifs.seekg(feature_offset, std::istream::beg);

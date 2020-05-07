@@ -19,7 +19,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  */
-#include <cmath>
 #include <chrono>
 #include <iostream>
 #include <iomanip>
@@ -39,9 +38,13 @@ SOFTWARE.
 #include <hdf5.h>
 #endif
 #include "nextdbscan.h"
-#include "nc_tree.h"
+#include "nc_tree_new.h"
 #include "deep_io.h"
 #include "next_util.h"
+// TODO CUDA
+#include "next_data_omp.h"
+#include "cell_processor.h"
+
 
 namespace nextdbscan {
 
@@ -59,11 +62,27 @@ namespace nextdbscan {
         }
     }
 
-    result collect_results(nc_tree &nc) noexcept {
-        result res{0, 0, 0, nc.n_coords, new int[nc.n_coords]};
-        res.core_count = nc.get_no_of_cores();
-        res.clusters = nc.get_no_of_clusters();
-        res.noise = nc.get_no_of_noise();
+    float get_lowest_e(float const e, int const n_dim) {
+        // TODO find a better formula (see if double helped)
+        if (n_dim <= 3) {
+            return e / sqrtf(3);
+        } else if (n_dim <= 8) {
+            return e / sqrtf(3.5);
+        } else if (n_dim <= 30) {
+            return e / sqrtf(4);
+        } else if (n_dim <= 80) {
+            return e / sqrtf(5);
+        } else {
+            return e / sqrtf(6);
+        }
+    }
+
+    result collect_results(nc_tree_new &nc, cell_processor &cp) noexcept {
+        result res{0, 0, 0, nc.n_coords, new long[nc.n_coords]};
+        cp.get_result_meta(res.core_count, res.noise, res.clusters);
+//        res.core_count = nc.get_no_of_cores();
+//        res.clusters = nc.get_no_of_clusters();
+//        res.noise = nc.get_no_of_noise();
         return res;
     }
 
@@ -84,8 +103,8 @@ namespace nextdbscan {
         is.close();
     }
 
-    uint read_input_hdf5(const std::string &in_file, s_vec<float> &v_points, uint &max_d,
-            const uint n_nodes, const uint node_index) noexcept {
+    uint read_input_hdf5(const std::string &in_file, s_vec<float> &v_points, unsigned long &max_d,
+            unsigned long const n_nodes, unsigned long const node_index) noexcept {
         uint n = 0;
 #ifdef HDF5_ON
         // TODO H5F_ACC_RDONLY ?
@@ -130,12 +149,12 @@ namespace nextdbscan {
         return in_file.compare(in_file.size() - s_cmp.size(), s_cmp.size(), s_cmp) == 0;
     }
 
-    uint read_input(const std::string &in_file, s_vec<float> &v_points, uint &n, uint &max_d,
-            const uint n_nodes, const uint node_index) noexcept {
+    unsigned long read_input(const std::string &in_file, s_vec<float> &v_points, unsigned long &n, unsigned long &max_d,
+            unsigned long const n_nodes, unsigned long const node_index) noexcept {
         std::string s_cmp = ".bin";
         std::string s_cmp_hdf5_1 = ".h5";
         std::string s_cmp_hdf5_2 = ".hdf5";
-        int total_samples = 0;
+        unsigned long total_samples = 0;
         if (is_equal(in_file, s_cmp)) {
             char c[in_file.size() + 1];
             strcpy(c, in_file.c_str());
@@ -145,9 +164,9 @@ namespace nextdbscan {
                 std::cerr << "Critical Error: Failed to read input" << std::endl;
                 exit(-1);
             }
-            n = data->sample_read_no;
-            max_d = data->feature_no;
-            return data->sample_no;
+            n = static_cast<unsigned long>(data->sample_read_no);
+            max_d = static_cast<unsigned long>(data->feature_no);
+            return static_cast<unsigned long>(data->sample_no);
         } else if (is_equal(in_file, s_cmp_hdf5_1) || is_equal(in_file, s_cmp_hdf5_2)) {
             n = read_input_hdf5(in_file, v_points, max_d, n_nodes, node_index);
             total_samples = n;
@@ -186,7 +205,7 @@ namespace nextdbscan {
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_dynamic(0);
         omp_set_num_threads(n_threads);
-        uint n, n_dim, total_samples;
+        unsigned long n, n_dim, total_samples;
         s_vec<float> v_coords;
         if (node_index == 0) {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " node(s)." << std::endl;
@@ -199,6 +218,36 @@ namespace nextdbscan {
             std::cout << "Found " << n << " points in " << n_dim << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
         }
+        s_vec<float> v_min_bounds(n_dim);
+        s_vec<float> v_max_bounds(n_dim);
+        auto e_lowest = get_lowest_e(e, n_dim);
+        auto n_level = next_data::determine_data_boundaries(&v_min_bounds[0], &v_max_bounds[0], &v_coords[0],
+                n_dim, n, e_lowest);
+        std::cout << "Max Level: " << n_level << std::endl;
+        nc_tree_new nc(e, e_lowest, n_dim, n_level, n, m);
+        measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
+            nc.build_tree(v_coords, v_min_bounds);
+        });
+
+        // TODO Move data together ?
+        next_util::print_tree_meta_data(nc);
+//        nc_tree nc(&v_coords[0], n_dim, n, e, m, n_threads);
+//        nc.init();
+        s_vec<long> v_edges;
+        nc.collect_edges(v_edges);
+        std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
+        cell_processor cp(n_threads);
+        measure_duration("Process Edges: ", node_index == 0, [&]() -> void {
+            cp.process_edges(v_coords, v_edges, nc);
+        });
+        measure_duration("Infer Types: ", node_index == 0, [&]() -> void {
+            cp.infer_types(nc);
+        });
+
+        measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
+            cp.determine_cell_labels(v_coords, v_edges, nc);
+        });
+
         /*
         std::vector<uint> v_sample(n);
         std::iota(v_sample.begin(), v_sample.end(), 0);
@@ -291,13 +340,19 @@ namespace nextdbscan {
         std::cout << "cores: " << cores << std::endl;
          */
 
-        nc_tree nc(&v_coords[0], n_dim, n, e, m, n_threads);
-        nc.init();
+//        nc_tree nc(&v_coords[0], n_dim, n, e, m, n_threads);
+//        nc.init();
 
-        measure_duration("MPI partition " + std::to_string(node_index) + ": ", true/*node_index == 0*/, [&]() -> void {
+        /*
+        s_vec<uint32_t> v_part_coord;
+        s_vec<uint32_t> v_part_offset;
+        s_vec<uint32_t> v_part_size;
+
+        measure_duration("MPI partition " + std::to_string(node_index) + ": ", true, [&]() -> void {
             // TODO handle prime number of partitions
-            nc.partition_data(n_threads);
+            nc.partition_data(v_part_coord, v_part_offset, v_part_size, n_threads);
         });
+        */
 
 
 /*node_index == 0*/
@@ -320,6 +375,7 @@ namespace nextdbscan {
         measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
             nc.determine_cell_labels();
         });
+        */
         auto time_end = std::chrono::high_resolution_clock::now();
         if (!g_quiet && node_index == 0) {
             std::cout << "Total Execution Time: "
@@ -329,8 +385,8 @@ namespace nextdbscan {
                       << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
                       << " milliseconds\n";
         }
-        */
-        return collect_results(nc);
+
+        return collect_results(nc, cp);
     }
 
 }

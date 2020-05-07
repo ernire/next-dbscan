@@ -24,10 +24,12 @@ SOFTWARE.
 
 #include <string>
 #include <vector>
+#include <cmath>
 
 typedef unsigned long long ull;
 
-static const int UNASSIGNED = -1;
+static long const UNASSIGNED = -1;
+
 
 namespace nextdbscan {
 
@@ -36,12 +38,12 @@ namespace nextdbscan {
     static const uint8_t SC = 2;
 
     struct result {
-        unsigned int clusters;
-        unsigned int noise;
-        unsigned int core_count;
-        unsigned int n;
+        long clusters;
+        long noise;
+        long core_count;
+        long n;
         // TODO avoid a memory leak
-        int *point_clusters;
+        long *point_clusters;
     };
 
     result start(

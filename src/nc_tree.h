@@ -35,7 +35,7 @@ SOFTWARE.
 typedef unsigned int uint;
 typedef unsigned long long ull;
 
-static const int UNDEFINED = -1;
+static const long UNDEFINED = -1;
 static const uint8_t UNKNOWN = 0;
 static const uint8_t NO_CORES = 0x1;
 static const uint8_t SOME_CORES = 0x2;
@@ -68,6 +68,9 @@ private:
     s_vec<uint8_t> v_leaf_cell_type;
     s_vec<uint8_t> v_is_core;
     s_vec<int> v_point_labels;
+    s_vec<uint32_t> v_part_coord;
+    s_vec<uint32_t> v_part_offset;
+    s_vec<uint32_t> v_part_size;
 #ifdef CUDA_ON
     thrust::device_vector<float> v_gpu_coords;
     thrust::device_vector<uint> v_gpu_edges;
@@ -98,8 +101,13 @@ private:
 
     void index_points(s_vec<float> &v_eps_levels) noexcept;
 
+    void index_points_parallel(s_vec<float> &v_eps_levels, s_vec<uint32_t> &v_part_coord,
+            s_vec<uint32_t> &v_part_offset, s_vec<uint32_t> &v_part_size) noexcept;
+
     static void collect_all_permutations(s_vec<uint32_t> &v_primes, s_vec<size_t> &v_unique_perm,
             s_vec<size_t> &v_combination_index, size_t n_comb_depth);
+
+    void partition_data() noexcept;
 
 public:
     uint32_t n_level = 0;
@@ -124,8 +132,6 @@ public:
                     e_inner = e / sqrtf(6);
                 }
             }
-
-    void partition_data(uint32_t n_partitions) noexcept;
 
     void build_tree() noexcept;
 

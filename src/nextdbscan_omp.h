@@ -27,6 +27,7 @@ template <class T>
 using s_vec = std::vector<T>;
 template <class T>
 using d_vec = std::vector<std::vector<T>>;
+typedef unsigned int uint;
 using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
 #include "nc_tree.h"
 #include <functional>

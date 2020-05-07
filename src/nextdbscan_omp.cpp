@@ -29,7 +29,7 @@ SOFTWARE.
 #include "nextdbscan_omp.h"
 #include "deep_io.h"
 #include "next_util.h"
-#include "nc_tree.h"
+//#include "nc_tree.h"
 
 
 struct cell_meta {
@@ -325,6 +325,22 @@ void partition_coords(const float *v_coords, d_vec<uint> &vv_index_map,
             }
         }
     }
+}
+
+uint32_t index_level_new(
+        float const *v_coords,
+        uint32_t const *v_part_index,
+        uint32_t const part_size,
+        s_vec<float> &v_min_bounds,
+        s_vec<uint32_t> &v_dim_cells,
+        d_vec<uint32_t> &vv_index_map,
+        d_vec<uint32_t> &vv_cell_begin,
+        s_vec<uint32_t> &v_cell_ns,
+        const float level_eps,
+        uint32_t const l,
+        uint32_t const size,
+        const size_t n_dim) noexcept {
+
 }
 
 uint index_level(const float *v_coords, s_vec<float> &v_min_bounds, s_vec<uint> &v_dim_cells,
@@ -806,17 +822,6 @@ void nc_tree::collect_proximity_queries() noexcept {
             v_tasks.emplace_back(l,i);
         }
     }
-
-//    uint test;
-//    for (uint l = 0; l < n_level; ++l) {
-//        test = 0;
-//        for (uint i = 0; i < vv_cell_ns[l].size(); ++i) {
-//            test += (vv_cell_ns[l][i] * (vv_cell_ns[l][i] - 1)) / 2;
-//        }
-//        std::cout << "l: " << l << " " << test << std::endl;
-//    }
-
-//    auto start_timestamp_1 = std::chrono::high_resolution_clock::now();
     uint total_edges = 0;
     #pragma omp parallel reduction(+: total_edges)
     {
@@ -859,19 +864,12 @@ void nc_tree::collect_proximity_queries() noexcept {
         vv_min_cell_dim[l].shrink_to_fit();
         vv_max_cell_dim[l].clear();
         vv_max_cell_dim[l].shrink_to_fit();
-    }
-//    auto end_timestamp_1 = std::chrono::high_resolution_clock::now();
-//    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp_1 - start_timestamp_1).count()
-//              << " milliseconds\n";
-//    auto start_timestamp_2 = std::chrono::high_resolution_clock::now();
+    };
     v_edges.reserve(total_edges);
     for (uint t = 0; t < vv_edges.size(); ++t) {
         v_edges.insert(v_edges.end(), std::make_move_iterator(vv_edges[t].begin()),
                 std::make_move_iterator(vv_edges[t].end()));
     }
-//    auto end_timestamp_2 = std::chrono::high_resolution_clock::now();
-//    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp_2 - start_timestamp_2).count()
-//              << " milliseconds\n";
 }
 
 void nc_tree::process_proximity_queries() noexcept {
@@ -1111,6 +1109,55 @@ void nc_tree::determine_cell_labels() noexcept {
             }
         }
     }
+}
+
+void nc_tree::index_points_parallel(s_vec<float> &v_eps_levels, s_vec<uint32_t> &v_part_coord,
+        s_vec<uint32_t> &v_part_offset, s_vec<uint32_t> &v_part_size) noexcept {
+
+    assert(v_part_coord.size() == n_threads);
+    std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
+    std::vector<std::vector<uint>> vv_part_cell_begin(n_threads);
+    std::vector<std::vector<uint>> vv_part_cell_ns(n_threads);
+
+    std::cout << "String indexing, max level: " << n_level << std::endl;
+    #pragma omp parallel
+    {
+        assert(omp_get_thread_num() < v_part_coord.size());
+        auto tid = omp_get_thread_num();
+        auto p_part_coord = &v_part_coord[v_part_offset[tid]];
+        auto part_size = v_part_size[tid];
+        std::vector<uint> v_index_dims;
+        uint32_t size = part_size;
+        for (uint32_t l = 0; l < 1; ++l) {
+            size = index_level_new(v_coords, p_part_coord, part_size, v_min_bounds, v_index_dims, vv_index_map, vv_cell_begin,
+                    vv_cell_ns[l], v_eps_levels[l], l, size, n_dim);
+        }
+    }
+    /*
+    uint size = n_coords;
+    std::vector<uint> v_index_dims;
+    std::vector<uint> v_t_n_cells(n_threads);
+    std::vector<uint> v_t_offsets(n_threads);
+    int n_parallel_level = n_level / 3;
+//    std::cout << "max level: " << n_level << ", max parallel level: " << n_parallel_level << std::endl;
+    std::vector<std::vector<uint>> vv_part_coord_index(n_threads);
+    std::vector<std::vector<uint>> vv_part_cell_begin(n_threads);
+    std::vector<std::vector<uint>> vv_part_cell_ns(n_threads);
+
+    for (int l = 0; l < n_level; ++l) {
+        if (l <= n_parallel_level) {
+            size = index_level_parallel(v_coords, v_min_bounds, v_max_bounds, vv_part_coord_index,
+                    vv_part_cell_begin, vv_part_cell_ns, v_t_n_cells, v_t_offsets,
+                    v_index_dims, vv_index_map, vv_cell_begin, vv_cell_ns, l, size,
+                    n_dim, n_threads, e_inner, n_parallel_level);
+        } else {
+            size = index_level(v_coords, v_min_bounds, v_index_dims, vv_index_map, vv_cell_begin,
+                    vv_cell_ns[l], v_eps_levels[l], l, size, n_dim);
+        }
+        calculate_level_cell_bounds(v_coords, vv_cell_begin[l], vv_cell_ns[l],
+                vv_index_map[l], vv_min_cell_dim, vv_max_cell_dim, n_dim, l);
+    }
+     */
 }
 
 

@@ -101,6 +101,9 @@ void nc_tree::init() noexcept {
     v_min_bounds.resize(n_dim);
     v_max_bounds.resize(n_dim);
     n_level = determine_data_boundaries();
+    if (n_threads > 1) {
+        partition_data();
+    }
     vv_index_map.resize(n_level);
     vv_cell_begin.resize(n_level);
     vv_cell_ns.resize(n_level);
@@ -165,7 +168,9 @@ void nc_tree::collect_all_permutations(s_vec<uint32_t> &v_primes, s_vec<size_t> 
     });
 }
 
-void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
+void nc_tree::partition_data(/*s_vec<uint32_t> &v_part_coord, s_vec<uint32_t> &v_part_offset,
+        s_vec<uint32_t> &v_part_size, const uint32_t n_partitions*/) noexcept {
+
     /*
     s_vec<uint32_t> v_prime;
     s_vec<size_t> v_unique_perm, v_combination_index;
@@ -187,8 +192,8 @@ void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
 
     // select the samples
      */
-
-    const uint64_t min_sample_size = static_cast<const uint64_t>(ceil(n_partitions * n_dim * log2(n_coords)));
+    auto n_partitions = n_threads;
+    const uint64_t min_sample_size = static_cast<const uint64_t>(ceil(n_partitions * n_dim * n_dim * log2(n_coords)));
 //    const uint n_sample_size = ceil(n_partitions*log2(n_coords));
     std::cout << "sample size: " << min_sample_size << std::endl;
 
@@ -212,6 +217,7 @@ void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
             }
         }
     }
+    n_level = level;
     for (auto &d : v_dim_cell_size) {
         d = static_cast<uint64_t>(((v_max_bounds[d] - v_min_bounds[d]) / e_lvl) + 1);
     }
@@ -256,7 +262,7 @@ void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
             auto p = (double)v_dim_cell_cnt_nz[i] / dim_sum;
             entropy -= p*log2(p);
         }
-        std::cout << "dim: " << d << " entropy: " << entropy << std::endl;
+//        std::cout << "dim: " << d << " entropy: " << entropy << std::endl;
         v_dim_entropy[d] = entropy;
     }
     std::sort(v_ordered_dim.begin(), v_ordered_dim.end(), [&v_dim_entropy] (auto const &d1, auto const &d2) -> bool {
@@ -282,19 +288,30 @@ void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
     s_vec<int64_t> v_cell_size_mul(v_ordered_dim.size());
     v_cell_size_mul[0] = 1;
     for (size_t d = 1; d < v_cell_size_mul.size(); ++d) {
-        v_cell_size_mul[d] = v_cell_size_mul[d-1] * v_dim_cell_size[d-1];
+        std::cout << v_dim_cell_size[v_ordered_dim[d-1]] << " ";
+        v_cell_size_mul[d] = v_cell_size_mul[d-1] * v_dim_cell_size[v_ordered_dim[d-1]];
     }
+    std::cout << std::endl;
+
+    std::cout << "CHECKPOINT" << std::endl;
 
     // Finally the indexing
     for (size_t i = 0; i < n_coords; ++i) {
         uint64_t cell_index = 0;
+        auto d_cnt = 0;
         for (auto const &d : v_ordered_dim) {
-            cell_index += (int64_t)((v_coords[(i*n_dim)+d] - v_min_bounds[d]) / e_lvl) * v_cell_size_mul[d];
+            assert(d >= 0 && d < n_dim);
+            assert(v_cell_size_mul[d_cnt] > 0);
+            cell_index += (int64_t)((v_coords[(i*n_dim)+d] - v_min_bounds[d]) / e_lvl) * v_cell_size_mul[d_cnt];
+            ++d_cnt;
         }
+        assert(cell_index < v_cell_cnt.size());
         v_cell_index[i] = cell_index;
         ++v_cell_cnt[cell_index];
     }
     // TODO MPI merge
+
+    std::cout << "CHECKPOINT 2" << std::endl;
 
 //    std::vector<uint32_t> v_cell_cnt_nz = v_cell_cnt;
 //    v_dim_cell_cnt_nz.resize(v_dim_cell_cnt.size());
@@ -309,15 +326,81 @@ void nc_tree::partition_data(const uint32_t n_partitions) noexcept {
     std::sort(v_ordered_cell_cnt.begin(), v_ordered_cell_cnt.end(), [&] (auto const &i1, auto const &i2) -> bool {
         return v_cell_cnt[i1] > v_cell_cnt[i2];
     });
-    std::cout << "total non empty cells: " << v_cell_cnt.size() << std::endl;
+    std::cout << "total cells: " << v_cell_cnt.size() << std::endl;
     auto new_end = std::lower_bound(v_ordered_cell_cnt.begin(), v_ordered_cell_cnt.end(), 0,
             [&] (auto const &i1, auto const &val) -> bool { return v_cell_cnt[i1] > val; });
     v_ordered_cell_cnt.resize(static_cast<unsigned long>(std::distance(v_ordered_cell_cnt.begin(), new_end)));
+    std::cout << "total non empty cells: " << v_ordered_cell_cnt.size() << std::endl;
 
-    auto sum = next_util::sum_array(&v_cell_cnt[0], v_cell_cnt.size());
+    // TODO remove this
+    auto sum = next_util::sum_array(&v_cell_cnt[0], static_cast<uint32_t>(v_cell_cnt.size()));
     assert(sum == n_coords);
 
     // Divide the data
+//    next_util::print_value_vector("final tallies: ", v_cell_cnt, v_ordered_cell_cnt);
+//    std::vector<uint32_t> v_partition_size(n_partitions, 0);
+    v_part_size.resize(n_partitions);
+    v_part_offset.resize(n_partitions);
+    std::vector<size_t> v_ordered_cell_marker(v_ordered_cell_cnt.size());
+    assert(v_part_size.size() <= v_ordered_cell_cnt.size());
+    for (size_t i = 0; i < v_part_size.size(); ++i) {
+        v_part_size[i] = v_cell_cnt[v_ordered_cell_cnt[i]];
+        v_ordered_cell_marker[i] = i;
+    }
+//    std::fill(v_cell_marker.begin(), std::next(v_cell_marker.begin(), n_partitions), 1);
+    for (size_t i = v_part_size.size(); i < v_ordered_cell_cnt.size(); ++i) {
+        size_t min_index = UINT32_MAX;
+        uint32_t min_value = UINT32_MAX;
+        for (size_t j = 0; j < v_part_size.size(); ++j) {
+            if (v_part_size[j] < min_value) {
+                min_value = v_part_size[j];
+                min_index = j;
+            }
+        }
+        v_part_size[min_index] += v_cell_cnt[v_ordered_cell_cnt[i]];
+        v_ordered_cell_marker[i] = min_index;
+    }
+
+    sum = next_util::sum_array(&v_cell_cnt[0], static_cast<uint32_t>(v_cell_cnt.size()));
+    assert(sum == n_coords);
+
+    next_util::print_vector("final data partion sizes: ", v_part_size);
+    next_util::fill_offsets(v_part_offset, v_part_size);
+    s_vec<uint32_t> v_tmp_offset = v_part_offset;
+//    next_util::print_vector("offsets: ", v_part_offset);
+    std::cout << "PRE FINAL" << std::endl;
+    v_part_coord.resize(n_coords);
+    for (uint32_t i = 0; i < n_coords; ++i) {
+//        std::cout << "i: " << i << std::endl;
+        bool check = false;
+        auto cell_index = v_cell_index[i];
+        for (size_t j = 0; j < v_ordered_cell_cnt.size(); ++j) {
+            if (v_ordered_cell_cnt[j] == cell_index) {
+                check = true;
+                cell_index = j;
+                break;
+            }
+        }
+        assert(check);
+//        std::cout << "cell_index: " << cell_index << " v_cell_marker size: " << v_ordered_cell_marker.size() << std::endl;
+        assert(cell_index < v_ordered_cell_marker.size());
+        auto cell_marker = v_ordered_cell_marker[cell_index];
+//        std::cout << "cell_marker: " << cell_marker << std::endl;
+        assert(cell_marker < v_tmp_offset.size());
+        auto offset = v_tmp_offset[cell_marker];
+//        std::cout << "offset: " << offset << std::endl;
+        assert(offset < v_part_coord.size());
+        v_part_coord[v_tmp_offset[cell_marker]++] = i;
+//        v_tmp_offset[v_cell_marker[v_cell_index[i]]]++;
+
+
+    }
+    std::cout << "CHECKPOINT FINAL" << std::endl;
+    for (size_t i = 0; i < v_tmp_offset.size(); ++i) {
+        std::cout << v_tmp_offset[i] << " : " << v_part_offset[i] << " : " << v_part_size[i] << std::endl;
+        assert(v_tmp_offset[i] == v_part_offset[i] + v_part_size[i]);
+    }
+
 
 
 //    std::cout << "new end: " << std::distance(v_ordered_cell_cnt.begin(), new_end) << std::endl;
