@@ -36,11 +36,32 @@ public:
 
     void infer_types(nc_tree_new &nc) noexcept;
 
-    void process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree_new &nc) noexcept;
+    void process_edges(s_vec<float> &v_coords,
+            s_vec<long> v_edges,
+            nc_tree_new &nc) noexcept;
 
-    void determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree_new &nc) noexcept;
+    void process_edges(s_vec<float> &v_coords,
+            s_vec<long> v_edges,
+            nc_tree_new &nc1,
+            nc_tree_new &nc2) noexcept;
+
+    void determine_cell_labels(s_vec<float> &v_coords,
+            s_vec<long> v_edges,
+            nc_tree_new &nc) noexcept;
 
     void get_result_meta(long &n_cores, long &n_noise, long &clusters) noexcept;
+
+    void partition_data(std::vector<float> &v_coords,
+            s_vec<float> &v_min_bounds,
+            s_vec<float> &v_max_bounds,
+            long const n_partitions,
+            unsigned long const n_coords,
+            unsigned long const n_dim,
+            long const n_level,
+            float const e_lowest,
+            s_vec<unsigned long> &v_part_coord,
+            s_vec<unsigned long> &v_part_offset,
+            s_vec<unsigned long> &v_part_size) noexcept;
 };
 
 

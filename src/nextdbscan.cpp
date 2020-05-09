@@ -50,7 +50,7 @@ namespace nextdbscan {
 
     static bool g_quiet = false;
 
-    void measure_duration(const std::string &name, const bool is_out, const std::function<void()> &callback) noexcept {
+    void measure_duration(std::string const &name, bool const is_out, std::function<void()> const &callback) noexcept {
         auto start_timestamp = std::chrono::high_resolution_clock::now();
         std::cout << name << std::flush;
         callback();
@@ -62,7 +62,7 @@ namespace nextdbscan {
         }
     }
 
-    float get_lowest_e(float const e, int const n_dim) {
+    float get_lowest_e(float const e, long const n_dim) {
         // TODO find a better formula (see if double helped)
         if (n_dim <= 3) {
             return e / sqrtf(3);
@@ -77,16 +77,13 @@ namespace nextdbscan {
         }
     }
 
-    result collect_results(nc_tree_new &nc, cell_processor &cp) noexcept {
-        result res{0, 0, 0, nc.n_coords, new long[nc.n_coords]};
+    result collect_results(cell_processor &cp, long const n_coords) noexcept {
+        result res{0, 0, 0, n_coords, new long[n_coords]};
         cp.get_result_meta(res.core_count, res.noise, res.clusters);
-//        res.core_count = nc.get_no_of_cores();
-//        res.clusters = nc.get_no_of_clusters();
-//        res.noise = nc.get_no_of_noise();
         return res;
     }
 
-    void read_input_csv(const std::string &in_file, s_vec<float> &v_points, int max_d) noexcept {
+    void read_input_csv(const std::string &in_file, s_vec<float> &v_points, long const max_d) noexcept {
         std::ifstream is(in_file);
         std::string line, buf;
         std::stringstream ss;
@@ -97,7 +94,7 @@ namespace nextdbscan {
             ss << line;
             for (int j = 0; j < max_d; j++) {
                 ss >> buf;
-                v_points[index++] = atof(buf.c_str());
+                v_points[index++] = static_cast<float>(atof(buf.c_str()));
             }
         }
         is.close();
@@ -224,17 +221,36 @@ namespace nextdbscan {
         auto n_level = next_data::determine_data_boundaries(&v_min_bounds[0], &v_max_bounds[0], &v_coords[0],
                 n_dim, n, e_lowest);
         std::cout << "Max Level: " << n_level << std::endl;
-        nc_tree_new nc(e, e_lowest, n_dim, n_level, n, m);
-        measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
-            nc.build_tree(v_coords, v_min_bounds);
-        });
-//        cell_processor cp(n_threads);
-        // TODO Move data together ?
-        next_util::print_tree_meta_data(nc);
-        s_vec<long> v_edges;
-        nc.collect_edges(v_edges);
-        std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
+
+        s_vec<unsigned long> v_part_coord;
+        s_vec<unsigned long> v_part_offset;
+        s_vec<unsigned long> v_part_size;
+
         cell_processor cp(n_threads);
+        auto nc = nc_tree_new(v_coords, v_min_bounds, v_max_bounds, e, e_lowest, n_dim, n_level, n, m);
+        if (n_threads > 1) {
+            measure_duration("Partition Data: ", node_index == 0, [&]() -> void {
+//                cp.partition_data(v_coords, v_min_bounds, v_max_bounds, n_threads, n,
+//                        n_dim, n_level, e_lowest, v_part_coord, v_part_offset, v_part_size);
+                nc.partition_data(n_threads);
+            });
+        }
+
+
+
+        measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
+            nc.build_tree();
+        });
+
+        s_vec<long> v_edges;
+        measure_duration("Collect Edges: ", node_index == 0, [&]() -> void {
+            nc.collect_edges(v_edges);
+
+        });
+
+
+        std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
+
         measure_duration("Process Edges: ", node_index == 0, [&]() -> void {
             cp.process_edges(v_coords, v_edges, nc);
         });
@@ -245,6 +261,12 @@ namespace nextdbscan {
         measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
             cp.determine_cell_labels(v_coords, v_edges, nc);
         });
+
+
+
+
+
+
 
         /*
         std::vector<uint> v_sample(n);
@@ -384,7 +406,7 @@ namespace nextdbscan {
                       << " milliseconds\n";
         }
 
-        return collect_results(nc, cp);
+        return collect_results(cp, total_samples);
     }
 
 }

@@ -9,7 +9,7 @@ CCUDA_FLAG=-DCUDA_ON=1
 CCDEBUG=-O1 -pg -g
 CCRUN=-O3
 
-SRC=main.cpp nextdbscan.cpp deep_io.cpp nc_tree.cpp
+SRC=main.cpp nextdbscan.cpp deep_io.cpp nc_tree_new.cpp cell_processor.cpp
 SRCCUDA=nextdbscan_cuda.cpp
 SRCMPI=nextdbscan_mpi.cpp
 SRCOMP=nextdbscan_omp.cpp

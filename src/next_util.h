@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <stack>
 #include <random>
-#include "nc_tree_new.h"
+//#include "nc_tree_new.h"
 
 template<typename T>
 using random_distribution = std::conditional_t<std::is_integral<T>::value,
@@ -67,11 +67,11 @@ public:
         return sum;
     }
 
-    template<class T>
-    static T sum_array_omp(T *arr, uint32_t size) noexcept {
+    template<typename T, typename K>
+    static T sum_array_omp(T *arr, K size) noexcept {
         T sum = 0;
         #pragma omp parallel for reduction(+:sum)
-        for (uint32_t i = 0; i < size; ++i) {
+        for (auto i = 0; i < size; ++i) {
             sum += arr[i];
         }
         return sum;
@@ -183,13 +183,6 @@ public:
                 }
             }
 //            std::reverse(v_primes.begin(), v_primes.end());
-        }
-    }
-
-    static void print_tree_meta_data(nc_tree_new &nc_tree) {
-        std::cout << "NC-tree levels: " << nc_tree.n_level << std::endl;
-        for (long l = 0; l < nc_tree.n_level; ++l) {
-            std::cout << "Level: " << l << " has " << nc_tree.get_no_of_cells(l) << " cells" << std::endl;
         }
     }
 
