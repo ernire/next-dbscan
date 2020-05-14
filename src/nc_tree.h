@@ -54,6 +54,7 @@ private:
     float *v_coords;
     const float e2;
     float e_inner;
+    long n_level_parallel = UNDEFINED;
     s_vec<float> v_min_bounds;
     s_vec<float> v_max_bounds;
     d_vec<uint> vv_index_map;

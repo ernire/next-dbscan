@@ -236,18 +236,22 @@ namespace nextdbscan {
             });
         }
 
-
-
         measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
-            nc.build_tree();
+            if (n_threads > 1) {
+                nc.build_tree_parallel(n_threads);
+            } else {
+                nc.build_tree();
+            }
         });
 
         s_vec<long> v_edges;
         measure_duration("Collect Edges: ", node_index == 0, [&]() -> void {
-            nc.collect_edges(v_edges);
-
+            if (n_threads > 1) {
+                nc.collect_edges_parallel(v_edges, n_threads);
+            } else {
+                nc.collect_edges(v_edges);
+            }
         });
-
 
         std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
 

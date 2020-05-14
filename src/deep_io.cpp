@@ -40,10 +40,10 @@ void deep_io::count_lines_and_dimensions(const std::string &in_file, unsigned lo
     is.close();
 }
 
-uint deep_io::get_block_size(const uint block_index, const uint number_of_samples,
-        const uint number_of_blocks) noexcept {
-    uint block = (number_of_samples / number_of_blocks);
-    uint reserve = number_of_samples % number_of_blocks;
+unsigned long deep_io::get_block_size(int block_index, const unsigned long number_of_samples,
+        const unsigned long number_of_blocks) noexcept {
+    unsigned long block = (number_of_samples / number_of_blocks);
+    unsigned long reserve = number_of_samples % number_of_blocks;
     // Some processes will need one more sample if the data size does not fit completely with the number of processes
     if (reserve > 0 && block_index < reserve) {
         return block + 1;
@@ -51,9 +51,9 @@ uint deep_io::get_block_size(const uint block_index, const uint number_of_sample
     return block;
 }
 
-uint deep_io::get_block_start_offset(const uint part_index, const uint number_of_samples,
-        const uint number_of_blocks) noexcept {
-    int offset = 0;
+unsigned long deep_io::get_block_start_offset(int part_index, const unsigned long number_of_samples,
+        const unsigned long number_of_blocks) noexcept {
+    unsigned long offset = 0;
     for (int i = 0; i < part_index; i++) {
         offset += get_block_size(i, number_of_samples, number_of_blocks);
     }

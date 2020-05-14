@@ -86,9 +86,9 @@ public:
     static void get_blocks_meta(std::unique_ptr<uint[]> &v_sizes, std::unique_ptr<uint[]> &v_offsets,
             uint number_of_samples, uint number_of_blocks) noexcept;
 
-    static uint get_block_size(uint block_index, uint number_of_samples, uint number_of_blocks) noexcept;
+    static unsigned long get_block_size(int block_index, unsigned long number_of_samples, unsigned long number_of_blocks) noexcept;
 
-    static uint get_block_start_offset(uint block_index, uint number_of_samples, uint number_of_blocks) noexcept;
+    static unsigned long get_block_start_offset(int block_index, unsigned long number_of_samples, unsigned long number_of_blocks) noexcept;
 };
 
 std::streampos get_file_size(const char *filePath);

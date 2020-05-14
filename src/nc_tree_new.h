@@ -17,6 +17,12 @@
 
 class nc_tree_new {
 private:
+    struct cell_meta_pair_level {
+        long l, c1, c2;
+
+        cell_meta_pair_level(long l, long c1, long c2) : l(l), c1(c1), c2(c2) {}
+    };
+
     float const e_lowest;
     d_vec<float> vv_min_cell_dim;
     d_vec<float> vv_max_cell_dim;
@@ -44,6 +50,11 @@ private:
         }
     }
 
+    void process_stack(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges) noexcept;
+
+    void process_tree_node(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges, long const l,
+            long const c) noexcept;
+
 public:
     float const e;
     float const e2;
@@ -51,6 +62,7 @@ public:
     unsigned long const m;
     unsigned long const n_coords;
     unsigned long const n_dim;
+    unsigned long n_level_parallel;
     d_vec<long> vv_index_map;
     d_vec<long> vv_cell_begin;
     d_vec<long> vv_cell_ns;
@@ -64,7 +76,7 @@ public:
             unsigned long n_coords,
             unsigned long const m)
             : v_coords(v_coords), v_min_bounds(v_min_bounds), v_max_bounds(v_max_bounds), m(m), e(e), e2(e*e),
-            n_coords(n_coords), n_dim(n_dim), n_level(n_level), e_lowest(e_lowest) {
+            n_coords(n_coords), n_dim(n_dim), n_level(n_level), n_level_parallel(n_level), e_lowest(e_lowest) {
         vv_index_map.resize(n_level);
         vv_cell_begin.resize(n_level);
         vv_cell_ns.resize(n_level);
@@ -74,21 +86,18 @@ public:
 
     void partition_data(long const min_partitions) noexcept;
 
-//    void build_tree_parallel(s_vec<long> v_part_offset,
-//            s_vec<long> v_part_size) noexcept;
+    void build_tree_parallel(unsigned long const n_threads) noexcept;
 
     void build_tree() noexcept;
 
     void collect_edges(s_vec<long> &v_edges) noexcept;
 
-    inline long get_no_of_cells(long tree_level) noexcept {
-        if (tree_level > n_level)
-            return -1;
+    inline unsigned long get_no_of_cells(long tree_level) noexcept {
         return vv_cell_ns[tree_level].size();
     }
 
-    inline long get_total_no_of_cells() noexcept {
-        long sum = 0;
+    inline unsigned long get_total_no_of_cells() noexcept {
+        unsigned long sum = 0;
         for (long l = 0; l < n_level; ++l) {
             sum += vv_cell_ns[l].size();
         }
@@ -101,6 +110,8 @@ public:
             std::cout << "Level: " << l << " has " << get_no_of_cells(l) << " cells" << std::endl;
         }
     }
+
+    void collect_edges_parallel(s_vec<long> &v_edges, unsigned long const n_threads) noexcept ;
 };
 
 

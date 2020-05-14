@@ -92,7 +92,7 @@ void nc_tree::build_tree() noexcept {
     s_vec<float> v_eps_levels(n_level);
     #pragma omp parallel for
     for (uint l = 0; l < n_level; l++) {
-        v_eps_levels[l] = (e_inner * pow(2, l));
+        v_eps_levels[l] = (e_inner * powf(2, l));
     }
     index_points(v_eps_levels);
 }
@@ -168,30 +168,7 @@ void nc_tree::collect_all_permutations(s_vec<uint32_t> &v_primes, s_vec<size_t> 
     });
 }
 
-void nc_tree::partition_data(/*s_vec<uint32_t> &v_part_coord, s_vec<uint32_t> &v_part_offset,
-        s_vec<uint32_t> &v_part_size, const uint32_t n_partitions*/) noexcept {
-
-    /*
-    s_vec<uint32_t> v_prime;
-    s_vec<size_t> v_unique_perm, v_combination_index;
-
-    next_util::get_small_prime_factors(v_prime, n_partitions);
-//    next_util::print_array("primes: ", &v_prime[0], v_prime.size());
-    const auto n_comb_depth = std::min(v_prime.size(), n_dim);
-    collect_all_permutations(v_prime, v_unique_perm, v_combination_index, n_comb_depth);
-
-//    next_util::print_vector("combination index: ", v_combination_index);
-
-    for (size_t i = 0; i < v_combination_index.size(); ++i) {
-        auto index = v_combination_index[i] * v_prime.size();
-        for (size_t j = 0; j < v_prime.size(); ++j) {
-            std::cout << v_unique_perm[index+j] << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    // select the samples
-     */
+void nc_tree::partition_data() noexcept {
     auto n_partitions = n_threads;
     const uint64_t min_sample_size = static_cast<const uint64_t>(ceil(n_partitions * n_dim * n_dim * log2(n_coords)));
 //    const uint n_sample_size = ceil(n_partitions*log2(n_coords));

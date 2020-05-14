@@ -223,15 +223,13 @@ void update_type(s_vec<long> &v_cell_ns,
 }
 
 void cell_processor::infer_types(nc_tree_new &nc) noexcept {
-//    uint max_clusters = 0;
     v_is_core.resize(nc.n_coords, UNKNOWN);
     v_point_labels.resize(nc.n_coords, UNASSIGNED);
-    #pragma omp parallel for //reduction(+: max_clusters)
+    #pragma omp parallel for schedule(guided)
     for (long i = 0; i < nc.vv_cell_ns[0].size(); ++i) {
         update_type(nc.vv_cell_ns[0], nc.vv_cell_begin[0],
                 v_leaf_cell_np, v_point_np, v_is_core, v_leaf_cell_type, i, nc.m);
         if (v_leaf_cell_type[i] != UNKNOWN) {
-//            ++max_clusters;
             auto begin = nc.vv_cell_begin[0][i];
             long core_p = UNASSIGNED;
             for (uint j = 0; j < nc.vv_cell_ns[0][i]; ++j) {
@@ -356,13 +354,13 @@ void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, 
     // reset
     v_leaf_cell_np = nc.vv_cell_ns[0];
     std::vector<std::vector<long>> vv_range_counts((unsigned long) n_threads);
-    std::cout << "max points in cell: " << max_points_in_cell << std::endl;
+//    std::cout << "max points in cell: " << max_points_in_cell << std::endl;
 
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
+        // TODO
         vv_range_counts[tid].resize(static_cast<unsigned long>(max_points_in_cell * 2));
-        // TODO guided ?
         #pragma omp for schedule(dynamic, 2)
         for (uint i = 0; i < v_edges.size(); i += 2) {
             auto c1 = v_edges[i];
