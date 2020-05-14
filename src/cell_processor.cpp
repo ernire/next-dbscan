@@ -85,89 +85,94 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
             if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
                 if (are_core_connected(v_coords, nc.vv_cell_begin[0], nc.vv_cell_ns[0],
                         v_is_core, c1, c2, nc.n_dim, nc.e2)) {
-                    v_edge_conn[i/2] = CORE_CONNECTED;
+                    v_edge_conn[i/2] = FULLY_CONNECTED;
                     _atomic_op(&v_local_min_labels[c_higher], v_local_min_labels[c_lower], std::less<>());
                 } else {
-                    v_edge_conn[i/2] = NOT_CORE_CONNECTED;
+                    v_edge_conn[i/2] = NOT_CONNECTED;
                 }
             } else if (conn == FULLY_CONNECTED) {
                 // We know they are connected
                 _atomic_op(&v_local_min_labels[c_higher], v_local_min_labels[c_lower], std::less<>());
             }
-        } else if (conn == FULLY_CONNECTED && (v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
-                   && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
-            c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
-            c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
-            if (v_local_min_labels[c_higher] != UNASSIGNED)
-                continue;
-            // Permitted race condition (DBSCAN border point labels are not deterministic)
-            v_local_min_labels[c_higher] = c_lower;
-        }  else if ((v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
-                    && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
-            // else handle border cell partials
-            c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
-            c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
-            if (v_local_min_labels[c_higher] != UNASSIGNED)
-                continue;
-//            auto begin1 = nc.vv_cell_begin[0][c_lower];
-//            auto begin2 = nc.vv_cell_begin[0][c_higher];
-            for (long k1 = 0; k1 < nc.vv_cell_ns[0][c_lower]; ++k1) {
-//                auto p1 = nc.vv_index_map[0][begin1 + k1];
-                auto p1 = nc.vv_cell_begin[0][c_lower] + k1;
-                if (!v_is_core[p1])
+        } else if ((v_leaf_cell_type[c1] != NO_CORES || v_leaf_cell_type[c2] != NO_CORES)
+                  && (v_leaf_cell_type[c1] == NO_CORES || v_leaf_cell_type[c2] == NO_CORES)) {
+            // One AC/SC and one NC
+            // No need to reprocess
+            v_edge_conn[i/2] = NOT_CONNECTED;
+            if (conn == FULLY_CONNECTED) {
+                c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
+                c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
+                if (v_local_min_labels[c_higher] != UNASSIGNED)
                     continue;
-                for (long k2 = 0; k2 < nc.vv_cell_ns[0][c_higher]; ++k2) {
-//                    auto p2 = nc.vv_index_map[0][begin2 + k2];
-                    auto p2 = nc.vv_cell_begin[0][c_higher] + k2;
-                    if (v_point_labels[p2] != UNASSIGNED)
+                // Permitted race condition (DBSCAN border point labels are not deterministic)
+                v_local_min_labels[c_higher] = c_lower;
+            } else {
+                // else handle border cell partials
+                c_lower = (v_leaf_cell_type[c1] != NO_CORES)? c1 : c2;
+                c_higher = (v_leaf_cell_type[c1] != NO_CORES)? c2 : c1;
+                if (v_local_min_labels[c_higher] != UNASSIGNED)
+                    continue;
+                for (long k1 = 0; k1 < nc.vv_cell_ns[0][c_lower]; ++k1) {
+                    auto p1 = nc.vv_cell_begin[0][c_lower] + k1;
+                    if (!v_is_core[p1])
                         continue;
-                    if (dist_leq(&v_coords[p1 * nc.n_dim], &v_coords[p2 * nc.n_dim], nc.n_dim, nc.e2)) {
-                        v_point_labels[p2] = p1;
+                    for (long k2 = 0; k2 < nc.vv_cell_ns[0][c_higher]; ++k2) {
+                        auto p2 = nc.vv_cell_begin[0][c_higher] + k2;
+                        if (v_point_labels[p2] != UNASSIGNED)
+                            continue;
+                        if (dist_leq(&v_coords[p1 * nc.n_dim], &v_coords[p2 * nc.n_dim], nc.n_dim, nc.e2)) {
+                            v_point_labels[p2] = p1;
+                        }
                     }
                 }
             }
+        } else {
+            v_edge_conn[i/2] = NOT_CONNECTED;
         }
     }
+
     flatten_labels(v_local_min_labels);
     bool loop = true;
     while (loop) {
 //        uint cnt = 0;
-        #pragma omp parallel for schedule(guided)
+        #pragma omp parallel for schedule(dynamic)
         for (uint i = 0; i < v_edges.size(); i += 2) {
             auto conn = v_edge_conn[i / 2];
-            if (conn == NOT_CONNECTED || conn == NOT_CORE_CONNECTED) {
+            if (conn == NOT_CONNECTED) {
                 continue;
             }
             auto c1 = v_edges[i];
             auto c2 = v_edges[i + 1];
             long c_lower, c_higher;
-            if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
-//                assert(v_leaf_cell_type[c1] != UNKNOWN && v_leaf_cell_type[c2] != UNKNOWN);
-                if (v_local_min_labels[c1] != v_local_min_labels[c2]) {
-                    if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
-                        if (are_core_connected(v_coords, /*nc.vv_index_map[0],*/ nc.vv_cell_begin[0],
-                                nc.vv_cell_ns[0],v_is_core, c1, c2, nc.n_dim, nc.e2)) {
-                            v_edge_conn[i / 2] = CORE_CONNECTED;
-                        } else {
-                            v_edge_conn[i / 2] = NOT_CORE_CONNECTED;
-                        }
-                    }
-                    if (conn == CORE_CONNECTED || conn == FULLY_CONNECTED) {
-                        c_lower = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
-                                  v_local_min_labels[c1] : v_local_min_labels[c2];
-                        c_higher = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
-                                   v_local_min_labels[c2] : v_local_min_labels[c1];
-                        _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
+//            assert(v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES);
+//            if (v_leaf_cell_type[c1] != NO_CORES && v_leaf_cell_type[c2] != NO_CORES) {
+            if (v_local_min_labels[c1] != v_local_min_labels[c2]) {
+                if (conn == UNKNOWN || conn == PARTIALLY_CONNECTED) {
+                    if (are_core_connected(v_coords, nc.vv_cell_begin[0],
+                            nc.vv_cell_ns[0],v_is_core, c1, c2, nc.n_dim, nc.e2)) {
+                        v_edge_conn[i / 2] = FULLY_CONNECTED;
+                    } else {
+                        v_edge_conn[i / 2] = NOT_CONNECTED;
                     }
                 }
+                if (conn == FULLY_CONNECTED) {
+                    c_lower = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
+                              v_local_min_labels[c1] : v_local_min_labels[c2];
+                    c_higher = (v_local_min_labels[c1] < v_local_min_labels[c2]) ?
+                               v_local_min_labels[c2] : v_local_min_labels[c1];
+                    _atomic_op(&v_local_min_labels[c_higher], c_lower, std::less<>());
+                }
             }
+//            }
         }
 //        std::cout << "loop relabel cnt: " << cnt << std::endl;
         if (!flatten_labels(v_local_min_labels)) {
             loop = false;
         }
     }
-    #pragma omp parallel for
+
+
+    #pragma omp parallel for schedule(guided)
     for (int i = 0; i < v_local_min_labels.size(); ++i) {
         if (v_local_min_labels[i] == i || v_local_min_labels[i] == UNASSIGNED)
             continue;
@@ -186,24 +191,27 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
     }
 }
 
-inline void update_to_ac(s_vec<long> &v_cell_ns, s_vec<long> &v_cell_begin,
-        s_vec<uint8_t> &is_core, s_vec<uint8_t> &v_types,
-        long const c) noexcept {
-    v_types[c] = ALL_CORES;
-    for (uint j = 0; j < v_cell_ns[c]; ++j) {
-        is_core[v_cell_begin[c] + j] = 1;
-    }
-}
+//inline void update_to_ac(s_vec<long> &v_cell_ns, s_vec<long> &v_cell_begin,
+//        s_vec<uint8_t> &is_core, s_vec<uint8_t> &v_types,
+//        long const c) noexcept {
+//    v_types[c] = ALL_CORES;
+//    for (uint j = 0; j < v_cell_ns[c]; ++j) {
+//        is_core[v_cell_begin[c] + j] = 1;
+//    }
+//}
 
 void update_type(s_vec<long> &v_cell_ns,
         s_vec<long> &v_cell_begin, s_vec<long> &v_cell_nps, s_vec<long> &v_point_nps,
         s_vec<uint8_t> &is_core, s_vec<uint8_t> &v_types, const long c, const long m) noexcept {
     if (v_cell_nps[c] >= m) {
-        update_to_ac(v_cell_ns, v_cell_begin, is_core, v_types, c);
+        v_types[c] = ALL_CORES;
+        for (uint j = 0; j < v_cell_ns[c]; ++j) {
+            is_core[v_cell_begin[c] + j] = 1;
+        }
+//        update_to_ac(v_cell_ns, v_cell_begin, is_core, v_types, c);
     }
     bool all_cores = true;
     bool some_cores = false;
-//    long begin = v_cell_begin[c];
     for (long j = 0; j < v_cell_ns[c]; ++j) {
         long p = v_cell_begin[c] + j;
         if (is_core[p])
@@ -295,8 +303,10 @@ uint8_t process_pair_proximity(s_vec<float> &v_coords,
                 v_cell_nps[c1] += min;
             }
             for (uint k1 = 0; k1 < size1; ++k1) {
-                #pragma omp atomic
-                v_point_nps[begin1+k1] += v_range_cnt[k1] - min;
+                if (v_range_cnt[k1] - min > 0) {
+                    #pragma omp atomic
+                    v_point_nps[begin1 + k1] += v_range_cnt[k1] - min;
+                }
             }
         }
         if (v_cell_nps[c2] < m) {
@@ -310,8 +320,10 @@ uint8_t process_pair_proximity(s_vec<float> &v_coords,
                 v_cell_nps[c2] += min;
             }
             for (long k2 = 0; k2 < size2; ++k2) {
-                #pragma omp atomic
-                v_point_nps[begin2+k2] += v_range_cnt[k2+size1] - min;
+                if (v_range_cnt[k2+size1] - min > 0) {
+                    #pragma omp atomic
+                    v_point_nps[begin2 + k2] += v_range_cnt[k2 + size1] - min;
+                }
             }
         }
         are_connected = PARTIALLY_CONNECTED;

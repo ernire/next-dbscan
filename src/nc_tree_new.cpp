@@ -161,7 +161,7 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
     for (auto l = 0; l < n_level_parallel; l++) {
         vv_index_map[l].resize(l == 0? n_coords : vv_cell_begin[l-1].size(), -1);
         std::iota(vv_index_map[l].begin(), vv_index_map[l].end(), 0);
-        std::fill(v_dim_index.begin(), v_dim_index.end(), -1);
+//        std::fill(v_dim_index.begin(), v_dim_index.end(), -1);
 
         #pragma omp parallel for
         for (auto i = 0; i < vv_index_map[l].size(); ++i) {
@@ -345,7 +345,7 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
         v_dim_cell_cnt.resize(v_dim_cell_size[d]);
         std::fill(v_dim_cell_cnt.begin(), v_dim_cell_cnt.end(), 0);
         auto offset = v_dim_offset[d];
-#pragma omp parallel for
+        #pragma omp parallel for
         for (size_t i = 0; i < n_coords; ++i) {
             assert(v_dim_cell_index[offset + i] >= 0 && v_dim_cell_index[offset + i] < v_dim_cell_cnt.size());
             ++v_dim_cell_cnt[v_dim_cell_index[offset + i]];
@@ -543,85 +543,7 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
     }
 
     n_level_parallel = level;
-    /*
-    sum = next_util::sum_array(&v_part_size[0], v_part_size.size());
-    assert(sum == n_coords);
-    auto test = 0;
-    std::cout << "parts: " << v_part_offset.size() << std::endl;
-    for (auto o = 0; o < v_part_offset.size(); ++o) {
-        unsigned long cell_index_cmp = 0;
-//        std::cout << "part offset: " << v_part_offset[o] << " size: " << v_part_size[o] << std::endl;
-        for (auto i = v_part_offset[o]; i < v_part_offset[o] + v_part_size[o]; ++i) {
-//            std::cout << "i: " << i << std::endl;
-            unsigned long long cell_index = 0;
-            auto d_cnt = 0;
-            for (auto const &d : v_ordered_dim) {
-                assert(d >= 0 && d < n_dim);
-                assert(v_cell_size_mul[d_cnt] > 0);
-                cell_index += ((v_coords[(i * n_dim) + d] - v_min_bounds[d]) / e_lvl) * v_cell_size_mul[d_cnt];
-                ++d_cnt;
-            }
-            if (i == v_part_offset[o]) {
-                cell_index_cmp = cell_index;
-//                std::cout << "cell index cmp: " << cell_index_cmp << std::endl;
-            } else {
-                if (cell_index != cell_index_cmp) {
-                    std::cout << "NOT: " << cell_index << " : " << cell_index_cmp << " : " << v_part_offset[o]
-                        << " : " << v_part_size[o] << " i: " << i << std::endl;
-                }
-//                assert(cell_index_cmp == cell_index);
-            }
-        }
-    }
-    n_level_parallel = level;
-
-    // Independent check
-    std::vector<unsigned long> v_dim_index(n_coords*n_dim);
-    for (auto i = 0; i < n_coords; ++i) {
-        for (auto d = 0; d < n_dim; ++d) {
-            v_dim_index[(i*n_dim)+d] = static_cast<unsigned long>((v_coords[(i*n_dim)+d] - v_min_bounds[d]) / e_lowest);
-        }
-    }
-    auto check = 0;
-    for (auto o = 0; o < v_part_offset.size(); ++o) {
-        std::vector<long> v_index_map(v_part_size[o]);
-        std::iota(v_index_map.begin(), v_index_map.end(), v_part_offset[o]);
-        std::sort(v_index_map.begin(), v_index_map.end(),
-                [&] (auto const &i1, auto const &i2) -> bool {
-                    auto const ci1 = i1 * n_dim;
-                    auto const ci2 = i2 * n_dim;
-                    for (uint d = 0; d < n_dim; ++d) {
-                        if (v_dim_index[ci1+d] < v_dim_index[ci2+d]) {
-                            return true;
-                        }
-                        if (v_dim_index[ci1+d] > v_dim_index[ci2+d]) {
-                            return false;
-                        }
-                    }
-                    return false;
-                });
-
-        ++check;
-        for (auto i = 1; i < v_index_map.size(); ++i) {
-            bool is_equal = true;
-            for (auto d = 0; d < n_dim; ++d) {
-                if (v_dim_index[(v_index_map[i]*n_dim)+d] != v_dim_index[(v_index_map[(i-1)]*n_dim)+d]) {
-                    is_equal = false;
-                }
-            }
-            if (!is_equal) {
-                ++check;
-            }
-
-        }
-    }
-//    std::cout << "Check: " << check << std::endl;
-                  */
 }
-
-//void nc_tree_new::process_stack(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges) noexcept {
-
-//}
 
 void nc_tree_new::collect_edges(s_vec<long> &v_edges) noexcept {
     std::vector<cell_meta_pair_level> v_stack;
