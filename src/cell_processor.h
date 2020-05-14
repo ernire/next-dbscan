@@ -24,11 +24,11 @@ static const uint8_t CORE_CONNECTED = 0x5;
 
 class cell_processor {
 private:
-    s_vec<uint8_t> v_edge_conn;
+    s_vec<char> v_edge_conn;
     s_vec<long> v_leaf_cell_np;
     s_vec<long> v_point_np;
-    s_vec<uint8_t> v_leaf_cell_type;
-    s_vec<uint8_t> v_is_core;
+    s_vec<char> v_leaf_cell_type;
+    s_vec<char> v_is_core;
     s_vec<long> v_point_labels;
     int const n_threads;
 public:

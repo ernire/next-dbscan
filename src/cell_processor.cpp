@@ -19,7 +19,7 @@ inline bool dist_leq(const float *coord1, const float *coord2, long const max_d,
 }
 
 bool are_core_connected(s_vec<float> &v_coords, s_vec<long> &v_cell_begin,
-        s_vec<long> &v_cell_ns, s_vec<uint8_t> &v_is_core,
+        s_vec<long> &v_cell_ns, s_vec<char> &v_is_core,
         long const c1, long const c2, long const n_dim, const float e2) noexcept {
     for (auto k1 = 0; k1 < v_cell_ns[c1]; ++k1) {
         if (!v_is_core[v_cell_begin[c1]+k1]) {
@@ -62,12 +62,12 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
     std::iota(v_local_min_labels.begin(), v_local_min_labels.end(), 0);
 
     #pragma omp parallel for
-    for (uint i = 0; i < v_local_min_labels.size(); ++i) {
+    for (auto i = 0; i < v_local_min_labels.size(); ++i) {
         if (v_leaf_cell_type[i] == NO_CORES)
             v_local_min_labels[i] = UNASSIGNED;
     }
     #pragma omp parallel for schedule(dynamic)
-    for (uint i = 0; i < v_edges.size(); i += 2) {
+    for (auto i = 0; i < v_edges.size(); i += 2) {
         auto conn = v_edge_conn[i/2];
         if (conn == NOT_CONNECTED) {
             continue;
@@ -136,7 +136,7 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
     while (loop) {
 //        uint cnt = 0;
         #pragma omp parallel for schedule(dynamic)
-        for (uint i = 0; i < v_edges.size(); i += 2) {
+        for (auto i = 0; i < v_edges.size(); i += 2) {
             auto conn = v_edge_conn[i / 2];
             if (conn == NOT_CONNECTED) {
                 continue;
@@ -184,7 +184,7 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
             v_point_labels[p] = v_point_labels[nc.vv_cell_begin[0][v_local_min_labels[i]]];
         } else {
             auto label = v_point_labels[nc.vv_cell_begin[0][v_local_min_labels[i]]];
-            for (uint j = 0; j < nc.vv_cell_ns[0][i]; ++j) {
+            for (auto j = 0; j < nc.vv_cell_ns[0][i]; ++j) {
                 v_point_labels[nc.vv_cell_begin[0][i]+j] = label;
             }
         }
@@ -202,10 +202,10 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
 
 void update_type(s_vec<long> &v_cell_ns,
         s_vec<long> &v_cell_begin, s_vec<long> &v_cell_nps, s_vec<long> &v_point_nps,
-        s_vec<uint8_t> &is_core, s_vec<uint8_t> &v_types, const long c, const long m) noexcept {
+        s_vec<char> &is_core, s_vec<char> &v_types, const long c, const long m) noexcept {
     if (v_cell_nps[c] >= m) {
         v_types[c] = ALL_CORES;
-        for (uint j = 0; j < v_cell_ns[c]; ++j) {
+        for (auto j = 0; j < v_cell_ns[c]; ++j) {
             is_core[v_cell_begin[c] + j] = 1;
         }
 //        update_to_ac(v_cell_ns, v_cell_begin, is_core, v_types, c);
@@ -240,13 +240,13 @@ void cell_processor::infer_types(nc_tree_new &nc) noexcept {
         if (v_leaf_cell_type[i] != UNKNOWN) {
             auto begin = nc.vv_cell_begin[0][i];
             long core_p = UNASSIGNED;
-            for (uint j = 0; j < nc.vv_cell_ns[0][i]; ++j) {
+            for (auto j = 0; j < nc.vv_cell_ns[0][i]; ++j) {
                 if (core_p != UNASSIGNED) {
                     v_point_labels[begin+j] = core_p;
                 } else if (v_is_core[begin+j]) {
                     core_p = begin+j;
                     v_point_labels[core_p] = core_p;
-                    for (uint k = 0; k < j; ++k) {
+                    for (auto k = 0; k < j; ++k) {
                         v_point_labels[begin+k] = core_p;
                     }
                 }
@@ -258,14 +258,14 @@ void cell_processor::infer_types(nc_tree_new &nc) noexcept {
     }
 }
 
-uint8_t process_pair_proximity(s_vec<float> &v_coords,
+char process_pair_proximity(s_vec<float> &v_coords,
         s_vec<long> &v_point_nps,
         s_vec<long> &v_cell_ns,
         std::vector<long> &v_range_cnt,
         s_vec<long> &v_cell_nps,
         const long max_d, const float e2, const long m,
         const long c1, const long begin1, const long c2, const long begin2) noexcept {
-    uint8_t are_connected = NOT_CONNECTED;
+    char are_connected = NOT_CONNECTED;
     auto size1 = v_cell_ns[c1];
     auto size2 = v_cell_ns[c2];
     std::fill(v_range_cnt.begin(), std::next(v_range_cnt.begin(), size1+size2), 0);
@@ -294,7 +294,7 @@ uint8_t process_pair_proximity(s_vec<float> &v_coords,
     } else if (hits > 0) {
         if (v_cell_nps[c1] < m) {
             long min = INT32_MAX;
-            for (uint k1 = 0; k1 < size1; ++k1) {
+            for (auto k1 = 0; k1 < size1; ++k1) {
                 if (v_range_cnt[k1] < min)
                     min = v_range_cnt[k1];
             }
@@ -302,7 +302,7 @@ uint8_t process_pair_proximity(s_vec<float> &v_coords,
                 #pragma omp atomic
                 v_cell_nps[c1] += min;
             }
-            for (uint k1 = 0; k1 < size1; ++k1) {
+            for (auto k1 = 0; k1 < size1; ++k1) {
                 if (v_range_cnt[k1] - min > 0) {
                     #pragma omp atomic
                     v_point_nps[begin1 + k1] += v_range_cnt[k1] - min;
@@ -374,7 +374,7 @@ void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, 
         // TODO
         vv_range_counts[tid].resize(static_cast<unsigned long>(max_points_in_cell * 2));
         #pragma omp for schedule(dynamic, 2)
-        for (uint i = 0; i < v_edges.size(); i += 2) {
+        for (auto i = 0; i < v_edges.size(); i += 2) {
             auto c1 = v_edges[i];
             auto c2 = v_edges[i+1];
             if (v_leaf_cell_np[c1] >= nc.m && v_leaf_cell_np[c2] >= nc.m) {
@@ -386,7 +386,7 @@ void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, 
             }
             auto begin1 = nc.vv_cell_begin[0][c1];
             auto begin2 = nc.vv_cell_begin[0][c2];
-            uint8_t are_connected = process_pair_proximity(v_coords, v_point_np,
+            auto are_connected = process_pair_proximity(v_coords, v_point_np,
                     nc.vv_cell_ns[0], vv_range_counts[tid], v_leaf_cell_np,
                     nc.n_dim, nc.e2, nc.m, c1, begin1, c2, begin2);
             v_edge_conn[i/2] = are_connected;
@@ -584,72 +584,4 @@ void cell_processor::partition_data(std::vector<float> &v_coords,
     // Divide the data
     next_util::print_value_vector("final tallies: ", v_cell_cnt, v_ordered_cell_cnt);
 
-
-//    std::vector<uint32_t> v_partition_size(n_partitions, 0);
-
-
-    /*
-    v_part_size.resize(n_partitions);
-    v_part_offset.resize(n_partitions);
-    std::vector<size_t> v_ordered_cell_marker(v_ordered_cell_cnt.size());
-    assert(v_part_size.size() <= v_ordered_cell_cnt.size());
-    for (size_t i = 0; i < v_part_size.size(); ++i) {
-        v_part_size[i] = v_cell_cnt[v_ordered_cell_cnt[i]];
-        v_ordered_cell_marker[i] = i;
-    }
-//    std::fill(v_cell_marker.begin(), std::next(v_cell_marker.begin(), n_partitions), 1);
-    for (size_t i = v_part_size.size(); i < v_ordered_cell_cnt.size(); ++i) {
-        size_t min_index = UINT32_MAX;
-        uint32_t min_value = UINT32_MAX;
-        for (size_t j = 0; j < v_part_size.size(); ++j) {
-            if (v_part_size[j] < min_value) {
-                min_value = v_part_size[j];
-                min_index = j;
-            }
-        }
-        v_part_size[min_index] += v_cell_cnt[v_ordered_cell_cnt[i]];
-        v_ordered_cell_marker[i] = min_index;
-    }
-
-    sum = next_util::sum_array(&v_cell_cnt[0], static_cast<uint32_t>(v_cell_cnt.size()));
-    assert(sum == n_coords);
-
-    next_util::print_vector("final data partion sizes: ", v_part_size);
-    next_util::fill_offsets(v_part_offset, v_part_size);
-    s_vec<unsigned long> v_tmp_offset = v_part_offset;
-//    next_util::print_vector("offsets: ", v_part_offset);
-    std::cout << "PRE FINAL" << std::endl;
-    v_part_coord.resize(n_coords);
-    for (uint32_t i = 0; i < n_coords; ++i) {
-//        std::cout << "i: " << i << std::endl;
-        bool check = false;
-        auto cell_index = v_cell_index[i];
-        for (size_t j = 0; j < v_ordered_cell_cnt.size(); ++j) {
-            if (v_ordered_cell_cnt[j] == cell_index) {
-                check = true;
-                cell_index = j;
-                break;
-            }
-        }
-        assert(check);
-//        std::cout << "cell_index: " << cell_index << " v_cell_marker size: " << v_ordered_cell_marker.size() << std::endl;
-        assert(cell_index < v_ordered_cell_marker.size());
-        auto cell_marker = v_ordered_cell_marker[cell_index];
-//        std::cout << "cell_marker: " << cell_marker << std::endl;
-        assert(cell_marker < v_tmp_offset.size());
-        auto offset = v_tmp_offset[cell_marker];
-//        std::cout << "offset: " << offset << std::endl;
-        assert(offset < v_part_coord.size());
-        v_part_coord[v_tmp_offset[cell_marker]++] = i;
-//        v_tmp_offset[v_cell_marker[v_cell_index[i]]]++;
-
-
-    }
-    std::cout << "CHECKPOINT FINAL" << std::endl;
-    for (size_t i = 0; i < v_tmp_offset.size(); ++i) {
-        std::cout << v_tmp_offset[i] << " : " << v_part_offset[i] << " : " << v_part_size[i] << std::endl;
-        assert(v_tmp_offset[i] == v_part_offset[i] + v_part_size[i]);
-    }
-
-     */
 }

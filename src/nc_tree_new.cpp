@@ -143,8 +143,7 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
     std::cout << "Build tree parallel with " << n_level_parallel << " levels." << std::endl;
 
     std::vector<float> v_eps_levels(n_level);
-    // TODO remove -1 x 2
-    std::vector<long> v_dim_index(n_coords * n_dim, -1);
+    std::vector<long> v_dim_index(n_coords * n_dim);
     std::vector<long> v_coord_index(n_coords);
     std::vector<long> v_tmp(n_coords);
     std::iota(v_coord_index.begin(), v_coord_index.end(), 0);
@@ -157,11 +156,10 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
     std::vector<unsigned long> v_marker_cnt(n_threads);
     std::vector<unsigned long> v_marker_offset(n_threads);
 
-    std::vector<int8_t > v_begin_marker(n_coords);
+    std::vector<char> v_begin_marker(n_coords);
     for (auto l = 0; l < n_level_parallel; l++) {
-        vv_index_map[l].resize(l == 0? n_coords : vv_cell_begin[l-1].size(), -1);
+        vv_index_map[l].resize(l == 0? n_coords : vv_cell_begin[l-1].size());
         std::iota(vv_index_map[l].begin(), vv_index_map[l].end(), 0);
-//        std::fill(v_dim_index.begin(), v_dim_index.end(), -1);
 
         #pragma omp parallel for
         for (auto i = 0; i < vv_index_map[l].size(); ++i) {
@@ -262,17 +260,20 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
             for (auto i = 0; i < vv_cell_begin[l].size()-1; ++i) {
                 vv_cell_ns[l][i] = vv_cell_begin[l][i+1] - vv_cell_begin[l][i];
             }
-
+            #pragma omp single
+            {
+                vv_cell_begin[l].resize(vv_cell_begin[l].size()-1);
+                v_tmp.clear();
+                v_tmp.assign(v_coord_index.begin(), v_coord_index.end());
+                v_coord_index.resize(vv_cell_begin[l].size());
+            }
+            #pragma omp for
+            for (auto i = 0; i < vv_cell_begin[l].size(); ++i) {
+                v_coord_index[i] = v_tmp[vv_index_map[l][vv_cell_begin[l][i]]];
+            }
         } // end of parallel region
-        vv_cell_begin[l].resize(vv_cell_begin[l].size()-1);
-        v_tmp.clear();
-        v_tmp.assign(v_coord_index.begin(), v_coord_index.end());
-        v_coord_index.resize(vv_cell_begin[l].size());
 
-        for (auto i = 0; i < vv_cell_begin[l].size(); ++i) {
-            v_coord_index[i] = v_tmp[vv_index_map[l][vv_cell_begin[l][i]]];
-        }
-        std::cout << "Level " << l << " total cells: " << total_cells << std::endl;
+//        std::cout << "Level " << l << " total cells: " << total_cells << std::endl;
         /*
         for (auto i = 0; i < vv_cell_begin[l].size(); ++i) {
             assert(vv_cell_begin[l][i] != -1);
@@ -299,8 +300,12 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
     } // for level
     // TODO parallelize
     std::vector<float> v_coords_copy = v_coords;
-    next_data::reorder_coords(v_coords_copy.begin(), vv_index_map[0].begin(), vv_index_map[0].end(),
-            v_coords.begin(), n_dim);
+    #pragma omp parallel for
+    for (auto i = 0; i < vv_index_map[0].size(); ++i) {
+        std::copy(std::next(v_coords_copy.begin(), vv_index_map[0][i]*n_dim),
+                std::next(v_coords_copy.begin(), vv_index_map[0][i]*n_dim+n_dim),
+                std::next(v_coords.begin(), i*n_dim));
+    }
     vv_index_map[0].clear();
     vv_index_map[0].shrink_to_fit();
 }
