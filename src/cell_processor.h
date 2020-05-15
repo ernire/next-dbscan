@@ -30,9 +30,9 @@ private:
     s_vec<char> v_leaf_cell_type;
     s_vec<char> v_is_core;
     s_vec<long> v_point_labels;
-    int const n_threads;
+    long const n_threads;
 public:
-    explicit cell_processor(int const n_threads) : n_threads(n_threads) {}
+    explicit cell_processor(long const n_threads) : n_threads(n_threads) {}
 
     void infer_types(nc_tree_new &nc) noexcept;
 
@@ -51,17 +51,6 @@ public:
 
     void get_result_meta(long &n_cores, long &n_noise, long &clusters) noexcept;
 
-    void partition_data(std::vector<float> &v_coords,
-            s_vec<float> &v_min_bounds,
-            s_vec<float> &v_max_bounds,
-            long const n_partitions,
-            unsigned long const n_coords,
-            unsigned long const n_dim,
-            long const n_level,
-            float const e_lowest,
-            s_vec<unsigned long> &v_part_coord,
-            s_vec<unsigned long> &v_part_offset,
-            s_vec<unsigned long> &v_part_size) noexcept;
 };
 
 

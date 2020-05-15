@@ -46,13 +46,12 @@ namespace nextdbscan {
         long *point_clusters;
     };
 
-    result start(
-            unsigned int m,
-            float e,
-            unsigned int n_threads,
+    result start(unsigned long const m,
+            float const e,
+            unsigned long const n_threads,
             const std::string &in_file,
-            unsigned int node_index,
-            unsigned int n_nodes) noexcept;
+            unsigned long const node_index,
+            unsigned long const n_nodes) noexcept;
 
 };
 

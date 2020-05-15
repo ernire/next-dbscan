@@ -63,7 +63,7 @@ namespace nextdbscan {
     }
 
     float get_lowest_e(float const e, long const n_dim) {
-        // TODO find a better formula (see if double helped)
+        // TODO find a less wasteful formula to maintain precision
         if (n_dim <= 3) {
             return e / sqrtf(3);
         } else if (n_dim <= 8) {
@@ -177,21 +177,8 @@ namespace nextdbscan {
         return total_samples;
     }
 
-
-    /*
-    inline bool dist_leq(const float *coord1, const float *coord2, const int max_d, const float e2) noexcept {
-        float tmp = 0;
-        #pragma omp simd
-        for (int d = 0; d < max_d; d++) {
-            float tmp2 = coord1[d] - coord2[d];
-            tmp += tmp2 * tmp2;
-        }
-        return tmp <= e2;
-    }
-     */
-
-    result start(const uint m, const float e, const uint n_threads, const std::string &in_file,
-            const uint node_index, const uint n_nodes) noexcept {
+    result start(unsigned long const m, const float e, unsigned long const n_threads, const std::string &in_file,
+            unsigned long const node_index, unsigned long const n_nodes) noexcept {
 
 
 //        #pragma omp parallel
@@ -203,7 +190,7 @@ namespace nextdbscan {
 
         auto time_start = std::chrono::high_resolution_clock::now();
         omp_set_dynamic(0);
-        omp_set_num_threads(n_threads);
+        omp_set_num_threads((int) n_threads);
         unsigned long n, n_dim, total_samples;
         s_vec<float> v_coords;
         if (node_index == 0) {
@@ -232,7 +219,7 @@ namespace nextdbscan {
         auto nc = nc_tree_new(v_coords, v_min_bounds, v_max_bounds, e, e_lowest, n_dim, n_level, n, m);
         if (n_threads > 1) {
             measure_duration("Partition Data: ", node_index == 0, [&]() -> void {
-                nc.partition_data(n_threads);
+                nc.partition_data(n_threads, n_threads);
             });
         }
 

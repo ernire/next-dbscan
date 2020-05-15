@@ -50,6 +50,9 @@ private:
         }
     }
 
+    unsigned long select_partition_dimensions(long const min_sample_size, s_vec<unsigned long> &v_ordered_dim,
+            s_vec<unsigned long> &v_cell_size_mul, float const e_lvl) noexcept;
+
     void process_stack(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges) noexcept;
 
     void process_tree_node(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges, long const l,
@@ -84,7 +87,7 @@ public:
         vv_max_cell_dim.resize(n_level);
     }
 
-    void partition_data(long const min_partitions) noexcept;
+    void partition_data(long const min_partitions, unsigned long const n_threads) noexcept;
 
     void build_tree_parallel(unsigned long const n_threads) noexcept;
 

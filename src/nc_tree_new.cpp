@@ -310,34 +310,24 @@ void nc_tree_new::build_tree_parallel(unsigned long const n_threads) noexcept {
     vv_index_map[0].shrink_to_fit();
 }
 
-void nc_tree_new::partition_data(long const min_partitions) noexcept {
-    std::cout << "n_coords: " << n_coords << std::endl;
-    long const min_sample_size = static_cast<long>(ceil(min_partitions * /*n_dim **/ n_dim * log10(n_coords)));
-    std::cout << "sample size: " << min_sample_size << std::endl;
-
-    auto level = n_level - 1;
+unsigned long nc_tree_new::select_partition_dimensions(long const min_sample_size,
+        s_vec<unsigned long> &v_ordered_dim, s_vec<unsigned long> &v_cell_size_mul, float const e_lvl) noexcept {
     s_vec<unsigned long> v_dim_cell_size(n_dim);
     std::iota(v_dim_cell_size.begin(), v_dim_cell_size.end(), 0);
-    auto v_ordered_dim = v_dim_cell_size;
-
-    unsigned long max_cells = set_partition_level(v_ordered_dim, level, min_sample_size);
-    std::cout << "sufficient level: " << level << " of " << n_level << std::endl;
-    std::cout << "sufficient level max cells: " << max_cells << std::endl;
-
-    float const e_lvl = (e_lowest * powf(2, level));
     for (auto &d : v_dim_cell_size) {
         d = static_cast<unsigned long>(ceilf((v_max_bounds[d] - v_min_bounds[d]) / e_lvl));
     }
-    next_util::print_vector("dim sizes: ", v_dim_cell_size);
+//    next_util::print_vector("dim sizes: ", v_dim_cell_size);
     std::vector<long> v_dim_cell_index(n_coords * n_dim, 0);
     std::vector<long> v_dim_offset(n_dim);
     std::iota(v_dim_offset.begin(), v_dim_offset.end(), 0);
     for (auto &d : v_dim_offset) {
         d *= n_coords;
     }
+    #pragma omp parallel for
     for (auto i = 0; i < n_coords; ++i) {
         for (auto const &d : v_ordered_dim) {
-            assert(v_dim_cell_index[v_dim_offset[d] + i] == 0);
+//            assert(v_dim_offset[d] + i < v_dim_cell_index.size());
             v_dim_cell_index[v_dim_offset[d] + i] =
                     static_cast<long>((v_coords[(i * n_dim) + d] - v_min_bounds[d]) / e_lvl);
         }
@@ -351,8 +341,8 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
         std::fill(v_dim_cell_cnt.begin(), v_dim_cell_cnt.end(), 0);
         auto offset = v_dim_offset[d];
         #pragma omp parallel for
-        for (size_t i = 0; i < n_coords; ++i) {
-            assert(v_dim_cell_index[offset + i] >= 0 && v_dim_cell_index[offset + i] < v_dim_cell_cnt.size());
+        for (auto i = 0; i < n_coords; ++i) {
+//            assert(v_dim_cell_index[offset + i] >= 0 && v_dim_cell_index[offset + i] < v_dim_cell_cnt.size());
             ++v_dim_cell_cnt[v_dim_cell_index[offset + i]];
         }
         // TODO MPI merge
@@ -365,8 +355,8 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
         float entropy = 0;
         auto dim_sum = next_util::sum_array_omp(&v_dim_cell_cnt_nz[0], v_dim_cell_cnt_nz.size());
 
-#pragma omp parallel for reduction(+:entropy)
-        for (size_t i = 0; i < v_dim_cell_cnt_nz.size(); ++i) {
+        #pragma omp parallel for reduction(+:entropy)
+        for (auto i = 0; i < v_dim_cell_cnt_nz.size(); ++i) {
             auto p = (double) v_dim_cell_cnt_nz[i] / dim_sum;
             entropy -= p * log2(p);
         }
@@ -376,47 +366,52 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
     std::sort(v_ordered_dim.begin(), v_ordered_dim.end(), [&v_dim_entropy](auto const &d1, auto const &d2) -> bool {
         return v_dim_entropy[d1] > v_dim_entropy[d2];
     });
-
-
     next_util::print_vector("dim order: ", v_ordered_dim);
 
-    // TODO TMP
-//    v_ordered_dim.resize(n_dim);
-//    std::iota(v_ordered_dim.begin(), v_ordered_dim.end(), 0);
-
     // Find the number of dimensions needed
-    max_cells = 1;
+    unsigned long max_cells = 1;
     unsigned long dim_size = 0;
     for (auto const &d : v_ordered_dim) {
         max_cells *= v_dim_cell_size[d];
+        std::cout << "max_cells: " << max_cells << std::endl;
         ++dim_size;
-//        if (max_cells > min_sample_size) {
-//            break;
-//        }
+        if (max_cells > min_sample_size) {
+            break;
+        }
     }
     v_ordered_dim.resize(dim_size);
-
-    s_vec<unsigned long> v_cell_size_mul(v_ordered_dim.size());
+    v_cell_size_mul.resize(v_ordered_dim.size());
     v_cell_size_mul[0] = 1;
     for (auto d = 1; d < v_cell_size_mul.size(); ++d) {
-//        std::cout << v_dim_cell_size[v_ordered_dim[d-1]] << " ";
         v_cell_size_mul[d] = (v_cell_size_mul[d - 1] * v_dim_cell_size[v_ordered_dim[d - 1]]);
     }
+    return max_cells;
+}
 
-    unsigned long max = 0;
-    for (auto const &d : v_ordered_dim) {
-        max += v_cell_size_mul[d] * v_dim_cell_size[d];
-    }
-    std::cout << "max: " << max << std::endl;
-    std::vector<unsigned long> v_cell_cnt(max, 0);
+void nc_tree_new::partition_data(long const min_partitions, unsigned long const n_threads) noexcept {
+    std::cout << "n_coords: " << n_coords << std::endl;
+    long const min_sample_size = static_cast<long>(ceil(min_partitions * /*n_dim **/ n_dim * log10(n_coords)));
+    std::cout << "sample size: " << min_sample_size << std::endl;
+    auto level = n_level - 1;
+    s_vec<unsigned long> v_ordered_dim(n_dim);
+    std::iota(v_ordered_dim.begin(), v_ordered_dim.end(), 0);
+    unsigned long max_cells = set_partition_level(v_ordered_dim, level, min_sample_size);
+    float const e_lvl = (e_lowest * powf(2, level));
+    std::cout << "sufficient level: " << level << " of " << n_level << std::endl;
+//    std::cout << "sufficient level max cells: " << max_cells << std::endl;
+    s_vec<unsigned long> v_cell_size_mul;
+    max_cells = select_partition_dimensions(min_sample_size, v_ordered_dim, v_cell_size_mul, e_lvl);
+    auto dim_size = v_ordered_dim.size();
+//    std::cout << "max: " << max_cells << " dim size: " << dim_size << std::endl;
+    std::vector<unsigned long> v_cell_cnt(max_cells, 0);
 //    std::vector<unsigned long> v_cell_cnt(next_util::sum_array(&v_cell_size_mul[0], v_cell_size_mul.size()), 0);
-    std::cout << "processed dim size: " << v_ordered_dim.size() << std::endl;
+//    std::cout << "processed dim size: " << v_ordered_dim.size() << std::endl;
 //    std::cout << "max cells: " << next_util::sum_array(&v_cell_size_mul[0], v_cell_size_mul.size()) << std::endl;
     std::vector<unsigned long> v_cell_index(n_coords);
 
 //    std::cout << std::endl;
 
-    next_util::print_vector("mul", v_cell_size_mul);
+//    next_util::print_vector("mul", v_cell_size_mul);
 //    unsigned long mul_max = 1;
 //    for (auto d = 0; d < v_cell_size_mul.size(); ++d) {
 //        mul_max *= v_cell_size_mul[d];
@@ -427,72 +422,29 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
     next_util::print_vector("indexing dim order: ", v_ordered_dim);
 
     // Finally the indexing
+    #pragma omp parallel for
     for (auto i = 0; i < n_coords; ++i) {
         unsigned long long cell_index = 0;
         auto d_cnt = 0;
         for (auto const &d : v_ordered_dim) {
-            assert(d >= 0 && d < n_dim);
-            assert(v_cell_size_mul[d_cnt] > 0);
-            assert(d_cnt < v_cell_size_mul.size());
-            auto tmp = (((v_coords[(i * n_dim) + d] - v_min_bounds[d]) / e_lvl));
-            assert(tmp < v_dim_cell_size[d]);
+//            assert(d >= 0 && d < n_dim);
+//            assert(v_cell_size_mul[d_cnt] > 0);
+//            assert(d_cnt < v_cell_size_mul.size());
+//            auto tmp = (((v_coords[(i * n_dim) + d] - v_min_bounds[d]) / e_lvl));
+//            assert(tmp < v_dim_cell_size[d]);
             cell_index += static_cast<unsigned long>((v_coords[(i * n_dim) + d] - v_min_bounds[d]) / e_lvl) *
                           v_cell_size_mul[d_cnt];
-//            cell_index *= ;
-//            cell_index += v_dim_cell_index[v_dim_offset[d] + i] * v_cell_size_mul[d_cnt];
             ++d_cnt;
         }
-        if (cell_index >= v_cell_cnt.size()) {
-            std::cerr << "cell_index: " << cell_index << " cnt: " << v_cell_cnt.size() << std::endl;
-        }
-        assert(cell_index < v_cell_cnt.size());
+//        if (cell_index >= v_cell_cnt.size()) {
+//            std::cerr << "cell_index: " << cell_index << " cnt: " << v_cell_cnt.size() << std::endl;
+//        }
+//        assert(cell_index < v_cell_cnt.size());
         v_cell_index[i] = cell_index;
+        #pragma omp atomic
         ++v_cell_cnt[cell_index];
     }
     // TODO MPI merge
-
-    for (auto i = 0; i < v_cell_cnt.size(); ++i) {
-        if (v_cell_cnt[i] > 0) {
-            auto cnt = 0;
-            unsigned long arr[n_dim];
-            unsigned long long cell_index = 0;
-            for (auto j = 0; j < v_cell_index.size(); ++j) {
-                if (v_cell_index[j] == i) {
-                    unsigned long long cell_index_2 = 0;
-                    unsigned long arr2[n_dim];
-                    if (cnt == 0) {
-                        for (auto d = 0; d < n_dim; ++d) {
-                            arr[d] = static_cast<unsigned long>((v_coords[(j * n_dim) + d] - v_min_bounds[d]) / e_lvl);
-                            cell_index += (((v_coords[(j * n_dim) + d] - v_min_bounds[d]) / e_lvl) *
-                                           v_cell_size_mul[d]);
-                        }
-                    } else {
-                        bool check = true;
-                        for (auto d = 0; d < n_dim; ++d) {
-                            unsigned long tmp = static_cast<unsigned long>((
-                                    (v_coords[(j * n_dim) + d] - v_min_bounds[d]) / e_lvl));
-                            arr2[d] = tmp;
-                            cell_index_2 += (((v_coords[(j * n_dim) + d] - v_min_bounds[d]) / e_lvl) *
-                                             v_cell_size_mul[d]);
-                            if (arr[d] != tmp)
-                                check = false;
-//                            assert(arr[d] == tmp);
-                        }
-                        if (!check) {
-                            std::cout << "Fail : " << i << " : " << cell_index << " : " << cell_index_2 << std::endl;
-//                            std::cout << "Fail: " << i << std::endl;
-                            next_util::print_array("array1: ", &arr[0], n_dim);
-                            next_util::print_array("array2: ", &arr2[0], n_dim);
-                            std::cout << std::flush << std::endl;
-//                            std::cerr << "Faile : " << next_util:
-                        }
-                    }
-                    ++cnt;
-                }
-            }
-            assert(cnt == v_cell_cnt[i]);
-        }
-    }
 
     std::vector<unsigned long> v_ordered_cell_cnt(v_cell_cnt.size());
     // TODO iota omp
@@ -507,46 +459,79 @@ void nc_tree_new::partition_data(long const min_partitions) noexcept {
     std::cout << "total non empty cells: " << v_ordered_cell_cnt.size() << std::endl;
 
     // TODO remove this
-    auto sum = next_util::sum_array(&v_cell_cnt[0], v_cell_cnt.size());
-    assert(sum == n_coords);
-    sum = 0;
-    for (auto i = 0; i < v_ordered_cell_cnt.size(); ++i) {
-        sum += v_cell_cnt[v_ordered_cell_cnt[i]];
-    }
-    assert(sum == n_coords);
+//    auto sum = next_util::sum_array(&v_cell_cnt[0], v_cell_cnt.size());
+//    assert(sum == n_coords);
+//    sum = 0;
+//    for (auto i = 0; i < v_ordered_cell_cnt.size(); ++i) {
+//        sum += v_cell_cnt[v_ordered_cell_cnt[i]];
+//    }
+//    assert(sum == n_coords);
 
-    // Divide the data
-//    next_util::print_value_vector("final tallies: ", v_cell_cnt, v_ordered_cell_cnt);
-
-//    std::vector<unsigned long> v_part_coord(n_coords);
     v_part_offset.resize(v_ordered_cell_cnt.size());
     v_part_size.resize(v_ordered_cell_cnt.size());
 
     v_part_offset[0] = 0;
     v_part_size[0] = v_cell_cnt[v_ordered_cell_cnt[0]];
-    assert(v_cell_cnt[v_ordered_cell_cnt[0]] > 0);
+//    assert(v_cell_cnt[v_ordered_cell_cnt[0]] > 0);
     for (auto i = 1; i < v_ordered_cell_cnt.size(); ++i) {
         v_part_size[i] = v_cell_cnt[v_ordered_cell_cnt[i]];
-        assert(v_cell_cnt[v_ordered_cell_cnt[i]] > 0);
+//        assert(v_cell_cnt[v_ordered_cell_cnt[i]] > 0);
         v_part_offset[i] = v_part_offset[i - 1] + v_part_size[i - 1];
     }
-    std::vector<long> v_coord_offset(v_cell_cnt.size(), -1);
+    std::vector<unsigned long> v_coord_offset(v_cell_cnt.size());
     for (auto i = 0; i < v_ordered_cell_cnt.size(); ++i) {
         v_coord_offset[v_ordered_cell_cnt[i]] = v_part_offset[i] * n_dim;
     }
     auto v_coords_copy = v_coords;
-    std::fill(v_coords.begin(), v_coords.end(), MAXFLOAT);
-//    #pragma omp parallel for
-    for (auto i = 0; i < n_coords; ++i) {
-        assert(v_coord_offset[v_cell_index[i]] >= 0);
-        std::copy(std::next(v_coords_copy.begin(), i * n_dim), std::next(v_coords_copy.begin(), (i * n_dim) + n_dim),
-                std::next(v_coords.begin(), v_coord_offset[v_cell_index[i]]));
-        v_coord_offset[v_cell_index[i]] += n_dim;
-    }
-    for (auto const &val : v_coords) {
-        assert(val != MAXFLOAT);
-    }
 
+//    std::fill(v_coords.begin(), v_coords.end(), MAXFLOAT);
+
+    if (n_threads == 1) {
+        for (auto i = 0; i < n_coords; ++i) {
+//            assert(v_coord_offset[v_cell_index[i]] >= 0);
+            std::copy(std::next(v_coords_copy.begin(), i * n_dim), std::next(v_coords_copy.begin(), (i * n_dim) + n_dim),
+                    std::next(v_coords.begin(), v_coord_offset[v_cell_index[i]]));
+            v_coord_offset[v_cell_index[i]] += n_dim;
+        }
+    } else if (n_threads > 1) {
+        d_vec<unsigned long> vv_t_cell_sizes(n_threads);
+        d_vec<unsigned long> vv_t_cell_offsets(n_threads);
+        for (auto t = 0; t < n_threads; ++t) {
+            vv_t_cell_sizes[t].resize(v_cell_index.size());
+            vv_t_cell_offsets[t] = v_coord_offset;
+        }
+        #pragma omp parallel
+        {
+            auto tid = omp_get_thread_num();
+            auto ts = deep_io::get_block_size(tid, n_coords, n_threads);
+            auto ti = deep_io::get_block_start_offset(tid, n_coords,n_threads);
+            for (auto i = ti; i < ti + ts; ++i) {
+                ++vv_t_cell_sizes[tid][v_cell_index[i]];
+            }
+            #pragma omp barrier
+            #pragma omp single
+            {
+                for (auto const &index : v_ordered_cell_cnt) {
+                    for (auto t = 1; t < n_threads; ++t) {
+                        vv_t_cell_offsets[t][index] = vv_t_cell_offsets[t-1][index]+(vv_t_cell_sizes[t-1][index]*n_dim);
+                    }
+                }
+            }
+            for (auto i = ti; i < ti + ts; ++i) {
+                std::copy(std::next(v_coords_copy.begin(), i * n_dim), std::next(v_coords_copy.begin(), (i*n_dim)+n_dim),
+                        std::next(v_coords.begin(), vv_t_cell_offsets[tid][v_cell_index[i]]));
+                vv_t_cell_offsets[tid][v_cell_index[i]] += n_dim;
+            }
+        }
+
+    }
+//    next_util::print_vector("ordered cell: ", v_ordered_cell_cnt);
+
+//    #pragma omp parallel for
+
+//    for (auto const &val : v_coords) {
+//        assert(val != MAXFLOAT);
+//    }
     n_level_parallel = level;
 }
 
