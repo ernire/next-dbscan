@@ -33,7 +33,7 @@ SOFTWARE.
 #include <iterator>
 #ifdef CUDA_ON
 //#include <thrust/host_vector.h>
-#include "nextdbscan_cuda.h"
+#include "nextdbscan_cu.cuh"
 #endif
 
 #ifndef CUDA_ON

@@ -23,17 +23,14 @@ SOFTWARE.
 #define NEXT_DBSCAN_NEXTDBSCAN_OMP_H
 
 #include <vector>
-template <class T>
+template <typename T>
 using s_vec = std::vector<T>;
-template <class T>
+template <typename T>
 using d_vec = std::vector<std::vector<T>>;
-typedef unsigned int uint;
-using t_uint_iterator = std::vector<std::vector<std::vector<uint>::iterator>>;
-#include "nc_tree.h"
-#include <functional>
 
 template<class T, class O>
 void _atomic_op(T* address, T value, O op) {
+    /*
     T previous = __sync_fetch_and_add(address, 0);
 
     while (op(value, previous)) {
@@ -43,6 +40,7 @@ void _atomic_op(T* address, T value, O op) {
             previous = __sync_fetch_and_add(address, 0);
         }
     }
+     */
 }
 
 #endif //NEXT_DBSCAN_NEXTDBSCAN_OMP_H

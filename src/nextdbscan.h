@@ -28,7 +28,7 @@ SOFTWARE.
 
 typedef unsigned long long ull;
 
-static long const UNASSIGNED = -1;
+//static long const UNASSIGNED = -1;
 
 
 namespace nextdbscan {
@@ -48,7 +48,7 @@ namespace nextdbscan {
 
     result start(unsigned long const m,
             float const e,
-            unsigned long const n_threads,
+            long const n_threads,
             const std::string &in_file,
             unsigned long const node_index,
             unsigned long const n_nodes) noexcept;

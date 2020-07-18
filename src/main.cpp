@@ -21,13 +21,13 @@ SOFTWARE.
  */
 
 #include <iostream>
-#include <getopt.h>
 #include <fstream>
 #include <iomanip>
 #include "nextdbscan.h"
 #include "deep_io.h"
 #include "next_util.h"
-
+#define MPI_ON
+//#define HDF5_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -61,13 +61,14 @@ void usage() {
 
 int main(int argc, char** argv) {
     char option;
-    int m = -1;
+    long m = -1;
     float e = -1;
-    int n_threads = -1;
+    long n_threads = -1;
     int errors = 0;
     std::string input_file;
     std::string output_file = "";
 
+    /*
     while ((option = getopt(argc, argv, "hm:e:o:t:d:")) != -1) {
         switch (option) {
             case 'm': {
@@ -119,25 +120,30 @@ int main(int argc, char** argv) {
     else {
         input_file = argv[optind];
     }
+     */
+    m = static_cast<long>(std::stoll(argv[2]));
+    e = std::stof(argv[4]);
+    n_threads = static_cast<long>(std::stoll(argv[6]));
+    input_file = argv[7];
+    std::cout << "input file: " << input_file << " : " << m << " : " << e << " n_threads: " << n_threads << std::endl;
 
     if (errors || m == -1 || e == -1) {
         std::cout << "Input Error: Please specify the m and e parameters" << std::endl << std::endl;
         usage();
         std::exit(EXIT_FAILURE);
     }
-    std::vector<uint> prime_cnt;
-    if (!next_util::small_prime_factor(prime_cnt, n_threads)) {
-        std::cerr << "ERROR: t must be a multiple of at least one of these primes: 2,3,5,7 (t=" << n_threads
-            << ")" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+//    std::vector<uint> prime_cnt;
+//    if (!next_util::small_prime_factor(prime_cnt, n_threads)) {
+//        std::cerr << "ERROR: t must be a multiple of at least one of these primes: 2,3,5,7 (t=" << n_threads
+//            << ")" << std::endl;
+//        std::exit(EXIT_FAILURE);
+//    }
     if (n_threads == -1) {
         n_threads = 1;
     }
 
     uint block_index = 0;
     uint blocks_no = 1;
-
 #ifdef MPI_ON
     MPI_Init(&argc, &argv);
     int mpi_size;
@@ -146,11 +152,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     block_index = mpi_rank;
     blocks_no = mpi_size;
-    if (!next_util::small_prime_factor(prime_cnt, blocks_no)) {
-        std::cerr << "ERROR: the used nodes must be a multiple of at least one of these primes: 2,3,5,7 (nodes="
-        << blocks_no << ")" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+    std::cout << "rank: " << mpi_rank << " of " << mpi_size << std::endl;
 #endif
 
     if (block_index == 0)
@@ -178,6 +180,7 @@ int main(int argc, char** argv) {
             std::cout << "Done!" << std::endl;
         }
     }
+
 #ifdef MPI_ON
     MPI_Finalize();
 #endif

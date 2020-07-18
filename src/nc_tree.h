@@ -1,204 +1,124 @@
-/*
-Copyright (c) 2019, Ernir Erlingsson
+//
+// Created by Ernir Erlingsson on 6.5.2020.
+//
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
- */
 #ifndef NEXT_DBSCAN_NC_TREE_H
 #define NEXT_DBSCAN_NC_TREE_H
 
-#include <vector>
-#include <cmath>
-#include "nextdbscan.h"
+
+#include <math.h>
+#include <cstdint>
 #ifdef CUDA_ON
-#include "nextdbscan_cuda.h"
+#include "nextdbscan_cu.cuh"
 #endif
 #ifndef CUDA_ON
 #include "nextdbscan_omp.h"
 #endif
 
-typedef unsigned int uint;
-typedef unsigned long long ull;
-
-static const long UNDEFINED = -1;
-static const uint8_t UNKNOWN = 0;
-static const uint8_t NO_CORES = 0x1;
-static const uint8_t SOME_CORES = 0x2;
-static const uint8_t ALL_CORES = 0x3;
-
-static const uint8_t NOT_CONNECTED = 0x1;
-static const uint8_t FULLY_CONNECTED = 0x2;
-static const uint8_t PARTIALLY_CONNECTED = 0x3;
-static const uint8_t NOT_CORE_CONNECTED = 0x4;
-static const uint8_t CORE_CONNECTED = 0x5;
-
-static const int ROOT_CLUSTER = INT32_MAX;
-
 class nc_tree {
 private:
-    float *v_coords;
-    const float e2;
-    float e_inner;
-    long n_level_parallel = UNDEFINED;
-    s_vec<float> v_min_bounds;
-    s_vec<float> v_max_bounds;
-    d_vec<uint> vv_index_map;
-    d_vec<uint> vv_cell_begin;
-    d_vec<uint> vv_cell_ns;
+    struct cell_meta_pair_level {
+        long l, c1, c2;
+
+        cell_meta_pair_level(long l, long c1, long c2) : l(l), c1(c1), c2(c2) {}
+    };
     d_vec<float> vv_min_cell_dim;
     d_vec<float> vv_max_cell_dim;
-    s_vec<uint> v_edges;
-    s_vec<uint8_t> v_edge_conn;
-    s_vec<uint> v_leaf_cell_np;
-    s_vec<uint> v_point_np;
-    s_vec<uint8_t> v_leaf_cell_type;
-    s_vec<uint8_t> v_is_core;
-    s_vec<int> v_point_labels;
-    s_vec<uint32_t> v_part_coord;
-    s_vec<uint32_t> v_part_offset;
-    s_vec<uint32_t> v_part_size;
-#ifdef CUDA_ON
-    thrust::device_vector<float> v_gpu_coords;
-    thrust::device_vector<uint> v_gpu_edges;
-    thrust::device_vector<int> v_gpu_point_labels;
-    thrust::device_vector<uint8_t> v_gpu_is_core;
-    thrust::device_vector<uint8_t> v_gpu_leaf_cell_type;
+    s_vec<float> &v_coords;
+    s_vec<float> &v_min_bounds;
+    s_vec<float> &v_max_bounds;
+    s_vec<unsigned long> v_part_offset;
+    s_vec<unsigned long> v_part_size;
 
-//    thrust::device_vector <uint> v_gpu_index_map;
-//    thrust::device_vector <uint> v_gpu_cell_ns2;
-//    thrust::device_vector <uint> v_gpu_cell_begin;
-//    thrust::device_vector<float> v_gpu_min_cell_dim;
-//    thrust::device_vector<float> v_gpu_max_cell_dim;
-
-//    thrust::device_vector<uint> v_level_index_offset;
-//    thrust::device_vector<uint> v_level_index_size;
-//    thrust::device_vector<uint> v_level_other_offset;
-//    thrust::device_vector<uint> v_level_other_size;
-
-    thrust::device_vector<uint> v_gpu_index;
-    thrust::device_vector<uint> v_gpu_begin;
-    thrust::device_vector<uint> v_gpu_cell_ns;
-
-#endif
-
-    void calc_bounds(float *min_bounds, float *max_bounds) noexcept;
-
-    uint determine_data_boundaries() noexcept;
-
-    void index_points(s_vec<float> &v_eps_levels) noexcept;
-
-    void index_points_parallel(s_vec<float> &v_eps_levels, s_vec<uint32_t> &v_part_coord,
-            s_vec<uint32_t> &v_part_offset, s_vec<uint32_t> &v_part_size) noexcept;
-
-    static void collect_all_permutations(s_vec<uint32_t> &v_primes, s_vec<size_t> &v_unique_perm,
-            s_vec<size_t> &v_combination_index, size_t n_comb_depth);
-
-    void partition_data() noexcept;
-
-public:
-    uint32_t n_level = 0;
-    const size_t n_dim;
-    const uint64_t n_coords;
-    const uint32_t m;
-    const float e;
-    const uint32_t n_threads;
-
-    explicit nc_tree(float* v_coords, uint n_dim, uint n_coords, float e, uint m, uint n_threads)
-        : v_coords(v_coords), n_dim(n_dim), n_coords(n_coords), m(m), e(e), n_threads(n_threads), e2(e*e) {
-        // TODO find a better formula
-                if (n_dim <= 3) {
-                    e_inner = e / sqrtf(3);
-                } else if (n_dim <= 8) {
-                    e_inner = e / sqrtf(3.5);
-                } else if (n_dim <= 30) {
-                    e_inner = e / sqrtf(4);
-                } else if (n_dim <= 80) {
-                    e_inner = e / sqrtf(5);
-                } else {
-                    e_inner = e / sqrtf(6);
+    unsigned long set_partition_level(s_vec<unsigned long> &v_ordered_dim,
+            unsigned long &level,
+            long const min_sample_size) {
+        long max_cells = 1;
+        float e_lvl = 0;
+        while (level > 0 && max_cells < min_sample_size) {
+            --level;
+            e_lvl = (e_lowest * powf(2, level));
+            max_cells = 1;
+            for (auto const &d : v_ordered_dim) {
+                max_cells *= static_cast<unsigned long>(((v_max_bounds[d] - v_min_bounds[d]) / e_lvl) + 1);
+                if  (max_cells > min_sample_size) {
+                    return static_cast<unsigned long>(max_cells);
                 }
             }
+        }
+    }
+
+    unsigned long select_partition_dimensions(long const min_sample_size, s_vec<unsigned long> &v_ordered_dim,
+            s_vec<unsigned long> &v_cell_size_mul, float const e_lvl) noexcept;
+
+    void process_stack(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges) noexcept;
+
+    void process_tree_node(std::vector<cell_meta_pair_level> &v_stack, s_vec<long> &v_edges, long const l,
+            long const c) noexcept;
+
+
+public:
+    unsigned long const m;
+    float const e;
+    float const e2;
+    unsigned long const n_coords;
+    unsigned long const n_dim;
+    unsigned long const n_level;
+    unsigned long n_level_parallel;
+    float const e_lowest;
+    d_vec<long> vv_index_map;
+    d_vec<long> vv_cell_begin;
+    d_vec<long> vv_cell_ns;
+    explicit nc_tree(s_vec<float> &v_coords,
+            s_vec<float> &v_min_bounds,
+            s_vec<float> &v_max_bounds,
+            unsigned long const m,
+            float const e,
+            unsigned long n_coords,
+            unsigned long n_dim,
+            unsigned long n_level,
+            float const e_lowest)
+            : v_coords(v_coords), v_min_bounds(v_min_bounds), v_max_bounds(v_max_bounds), m(m), e(e), e2(e*e),
+            n_coords(n_coords), n_dim(n_dim), n_level(n_level), n_level_parallel(n_level), e_lowest(e_lowest) {
+        vv_index_map.resize(n_level);
+        vv_cell_begin.resize(n_level);
+        vv_cell_ns.resize(n_level);
+        vv_min_cell_dim.resize(n_level);
+        vv_max_cell_dim.resize(n_level);
+    }
+
+    void partition_data(long const min_partitions, unsigned long const n_threads) noexcept;
+
+    void partition_and_distribute(long const min_partitions, unsigned long const n_nodes) noexcept;
+
+    void build_tree_parallel(unsigned long const n_threads) noexcept;
 
     void build_tree() noexcept;
 
-    void collect_proximity_queries() noexcept;
+    void collect_edges(s_vec<long> &v_edges) noexcept;
 
-    void init() noexcept;
+    void collect_edges_parallel_old(s_vec<long> &v_edges, unsigned long const n_threads) noexcept;
 
-    void infer_types() noexcept;
-
-    void process_proximity_queries() noexcept;
-
-    void determine_cell_labels() noexcept;
-
-    int get_no_of_cells(uint tree_level) noexcept {
-        if (tree_level > n_level)
-            return UNDEFINED;
+    inline unsigned long get_no_of_cells(long tree_level) noexcept {
         return vv_cell_ns[tree_level].size();
     }
 
-    int cnt_leaf_cells_of_type(const uint type) {
-        if (n_level == 0 || v_leaf_cell_type.empty())
-            return UNDEFINED;
-        uint cnt = 0;
-        #pragma omp parallel for reduction(+:cnt)
-        for (uint i = 0; i < v_leaf_cell_type.size(); ++i) {
-            if (v_leaf_cell_type[i] == type)
-                ++cnt;
-        }
-        return cnt;
-    }
-
-    uint get_no_of_edges() noexcept {
-        return v_edges.size() / 2;
-    }
-
-    uint get_no_of_cores() noexcept {
-        uint sum = 0;
-        #pragma omp parallel for reduction(+:sum)
-        for (uint i = 0; i < v_is_core.size(); ++i) {
-            if (v_is_core[i])
-                ++sum;
+    inline unsigned long get_total_no_of_cells() noexcept {
+        unsigned long sum = 0;
+        for (unsigned long l = 0; l < n_level; ++l) {
+            sum += vv_cell_ns[l].size();
         }
         return sum;
     }
 
-    uint get_no_of_clusters() noexcept {
-        uint sum = 0;
-        #pragma omp parallel for reduction(+:sum)
-        for (int i = 0; i < v_point_labels.size(); ++i) {
-            if (v_point_labels[i] == i)
-                ++sum;
+    void print_tree_meta_data() {
+        std::cout << "NC-tree levels: " << n_level << std::endl;
+        for (unsigned long l = 0; l < n_level; ++l) {
+            std::cout << "Level: " << l << " has " << get_no_of_cells(l) << " cells" << std::endl;
         }
-        return sum;
     }
 
-    uint get_no_of_noise() noexcept {
-        uint sum = 0;
-        #pragma omp parallel for reduction(+:sum)
-        for (int i = 0; i < v_point_labels.size(); ++i) {
-            // TODO replace with const value from nextdbscan.h
-            if (v_point_labels[i] == -1)
-                ++sum;
-        }
-        return sum;
-    }
-
+    void collect_edges_parallel(s_vec<long> &v_edges, unsigned long const n_threads) noexcept ;
 };
 
 

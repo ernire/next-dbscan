@@ -38,10 +38,9 @@ SOFTWARE.
 #include <hdf5.h>
 #endif
 #include "nextdbscan.h"
-#include "nc_tree_new.h"
+#include "nc_tree.h"
 #include "deep_io.h"
 #include "next_util.h"
-// TODO CUDA
 #include "next_data_omp.h"
 #include "cell_processor.h"
 
@@ -51,14 +50,14 @@ namespace nextdbscan {
     static bool g_quiet = false;
 
     void measure_duration(std::string const &name, bool const is_out, std::function<void()> const &callback) noexcept {
-        auto start_timestamp = std::chrono::high_resolution_clock::now();
         std::cout << name << std::flush;
+        auto start_timestamp = std::chrono::high_resolution_clock::now();
         callback();
         auto end_timestamp = std::chrono::high_resolution_clock::now();
         if (!g_quiet && is_out) {
             std::cout
                 << std::chrono::duration_cast<std::chrono::milliseconds>(end_timestamp - start_timestamp).count()
-                << " milliseconds\n";
+                << " milliseconds" << std::endl;
         }
     }
 
@@ -152,8 +151,12 @@ namespace nextdbscan {
         std::string s_cmp_hdf5_1 = ".h5";
         std::string s_cmp_hdf5_2 = ".hdf5";
         unsigned long total_samples = 0;
+
+        std::cout << "in file: " << in_file << std::endl << std::flush;
+
         if (is_equal(in_file, s_cmp)) {
-            char c[in_file.size() + 1];
+            char *c = new char[in_file.size()];
+//            char c[strlen(in_file.c_str()) + 1];
             strcpy(c, in_file.c_str());
             auto *data = new deep_io(c, n_nodes, node_index);
             int read_bytes = data->load_next_samples(v_points);
@@ -177,7 +180,7 @@ namespace nextdbscan {
         return total_samples;
     }
 
-    result start(unsigned long const m, const float e, unsigned long const n_threads, const std::string &in_file,
+    result start(unsigned long const m, const float e, long const n_threads, const std::string &in_file,
             unsigned long const node_index, unsigned long const n_nodes) noexcept {
 
 
@@ -196,10 +199,10 @@ namespace nextdbscan {
         if (node_index == 0) {
             std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " node(s)." << std::endl;
         }
-        measure_duration("Input Read: ", node_index == 0, [&]() -> void {
+        measure_duration("Input Read: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
             total_samples = read_input(in_file, v_coords, n, n_dim, n_nodes, node_index);
         });
-        auto time_data_read = std::chrono::high_resolution_clock::now();
+
         if (node_index == 0) {
             std::cout << "Found " << n << " points in " << n_dim << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
@@ -209,6 +212,13 @@ namespace nextdbscan {
         auto e_lowest = get_lowest_e(e, n_dim);
         auto n_level = next_data::determine_data_boundaries(&v_min_bounds[0], &v_max_bounds[0], &v_coords[0],
                 n_dim, n, e_lowest);
+
+        next_util::print_vector("min bounds: ", v_min_bounds);
+        next_util::print_vector("max bounds: ", v_max_bounds);
+        std::cout << "v_coords size: " << v_coords.size() << std::endl;
+        float val2 = next_util::sum_array(&v_coords[0], v_coords.size());
+        std::cout << "coords reduction: " << val2 << std::endl;
+
         std::cout << "Max Level: " << n_level << std::endl;
 
         s_vec<unsigned long> v_part_coord;
@@ -216,53 +226,65 @@ namespace nextdbscan {
         s_vec<unsigned long> v_part_size;
 
         cell_processor cp(n_threads);
-        auto nc = nc_tree_new(v_coords, v_min_bounds, v_max_bounds, e, e_lowest, n_dim, n_level, n, m);
-        if (n_threads > 1) {
-            measure_duration("Partition Data: ", node_index == 0, [&]() -> void {
-                nc.partition_data(n_threads, n_threads);
+
+        auto nc = nc_tree(v_coords, v_min_bounds, v_max_bounds, m, e, n, n_dim, n_level, e_lowest);
+        if (n_nodes > 1) {
+            measure_duration("Partition and Distribute: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
             });
         }
 
-        measure_duration("Build NC Tree: ", node_index == 0, [&]() -> void {
-            if (n_threads > 1) {
-                nc.build_tree_parallel(n_threads);
-            } else {
-                nc.build_tree();
-            }
-        });
-
-        s_vec<long> v_edges;
-        measure_duration("Collect Edges: ", node_index == 0, [&]() -> void {
-            if (n_threads > 1) {
-                nc.collect_edges_parallel(v_edges, n_threads);
-            } else {
-                nc.collect_edges(v_edges);
-            }
-        });
-
-        std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
-
-        measure_duration("Process Edges: ", node_index == 0, [&]() -> void {
-            cp.process_edges(v_coords, v_edges, nc);
-        });
-        measure_duration("Infer Types: ", node_index == 0, [&]() -> void {
-            cp.infer_types(nc);
-        });
-
-        measure_duration("Determine Labels: ", node_index == 0, [&]() -> void {
-            cp.determine_cell_labels(v_coords, v_edges, nc);
-        });
-
-        auto time_end = std::chrono::high_resolution_clock::now();
-        if (!g_quiet && node_index == 0) {
-            std::cout << "Total Execution Time: "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count()
-                      << " milliseconds\n";
-            std::cout << "Total Execution Time (without I/O): "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
-                      << " milliseconds\n";
+        /*
+        if (n_threads > 1) {
+            measure_duration("Partition Data: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
+            });
         }
+         */
+/*
 
+measure_duration("Build NC Tree: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+    if (n_threads > 1) {
+        nc.build_tree_parallel(n_threads);
+    } else {
+        nc.build_tree();
+    }
+});
+
+s_vec<long> v_edges;
+measure_duration("Collect Edges: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+    // TODO TMP
+    if (n_threads > 1) {
+//                nc.collect_edges_parallel(v_edges, n_threads);
+        nc.collect_edges_parallel_old(v_edges, n_threads);
+    } else {
+        nc.collect_edges(v_edges);
+    }
+});
+
+std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
+
+measure_duration("Process Edges: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+    cp.process_edges(v_coords, v_edges, nc);
+});
+measure_duration("Infer Types: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+    cp.infer_types(nc);
+});
+
+measure_duration("Determine Labels: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+    cp.determine_cell_labels(v_coords, v_edges, nc);
+});
+
+auto time_end = std::chrono::high_resolution_clock::now();
+if (!g_quiet && node_index == 0) {
+    std::cout << "Total Execution Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count()
+              << " milliseconds\n";
+    std::cout << "Total Execution Time (without I/O): "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
+              << " milliseconds\n";
+}
+*/
         return collect_results(cp, total_samples);
     }
 

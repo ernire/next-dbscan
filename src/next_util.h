@@ -8,9 +8,7 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
-#include <stack>
 #include <random>
-//#include "nc_tree_new.h"
 
 template<typename T>
 using random_distribution = std::conditional_t<std::is_integral<T>::value,
@@ -22,6 +20,12 @@ using random_distribution = std::conditional_t<std::is_integral<T>::value,
 
 class next_util {
 public:
+
+    static void _assert(bool const predicate, std::string const str) {
+        if (!predicate) {
+            std::cerr << "Assertion failed: " << str << std::endl << std::flush;
+        }
+    }
 
     template<typename T>
     static void fill_offsets(s_vec<T> &v_offset, s_vec<T> &v_size) noexcept {
@@ -50,9 +54,9 @@ public:
     }
 
     template<class T>
-    static void print_array(const std::string &name, T *arr, uint32_t size) noexcept {
+    static void print_array(const std::string &name, T *arr, long size) noexcept {
         std::cout << name << ": ";
-        for (int i = 0; i < size; ++i) {
+        for (long i = 0; i < size; ++i) {
             std::cout << arr[i] << " ";
         }
         std::cout << std::endl;
@@ -77,6 +81,7 @@ public:
         return sum;
     }
 
+    /*
     template <class T, typename std::enable_if<std::is_arithmetic<T>::value>::type* = nullptr>
     static void random_vector_no_repeat(s_vec<T> &vec, const size_t vec_size, const size_t pool_size) noexcept {
 //        std::default_random_engine generator(std::random_device{}());
@@ -101,9 +106,11 @@ public:
                 --i;
         }
     }
+     */
 
+    /*
     // 2, 3, 5, 7 only
-    static bool small_prime_factor(std::vector<uint32_t> &v_prime_cnt, uint32_t number) {
+    static bool small_prime_factor(std::vector<uint32_t> &v_prime_cnt, int number) {
         v_prime_cnt.resize(4, 0);
         int primes[] {2,3,5,7};
         for (int i = 0; i < 4; ++i) {
@@ -128,14 +135,17 @@ public:
             }
         }
     }
+     */
 
+    /*
     static void collect_permutations(s_vec<size_t> &collector, s_vec<size_t>::iterator begin, s_vec<size_t>::iterator end) {
         std::sort(begin, end);
         do {
             std::copy(begin, end, back_inserter(collector));
         } while(std::next_permutation(begin, end));
     }
-
+     */
+    /*
     static void get_permutation_base(s_vec<size_t> &v_all_perms, size_t places, size_t max) {
         std::stack<size_t> stack;
         s_vec<size_t> v_perms(places, 0);
@@ -171,7 +181,8 @@ public:
             v_all_perms.push_back(i);
         }
     }
-
+    */
+    /*
     static void get_small_prime_factors(std::vector<uint32_t> &v_primes, uint32_t number) {
         std::vector<uint32_t> v_prime_cnt;
         int primes[] {2,3,5,7,11,13,17};
@@ -185,6 +196,7 @@ public:
 //            std::reverse(v_primes.begin(), v_primes.end());
         }
     }
+     */
 
 };
 #endif //NEXT_DBSCAN_NEXT_UTIL_H

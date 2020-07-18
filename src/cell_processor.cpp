@@ -18,8 +18,10 @@ inline bool dist_leq(const float *coord1, const float *coord2, long const max_d,
     return tmp <= e2;
 }
 
-bool are_core_connected(s_vec<float> &v_coords, s_vec<long> &v_cell_begin,
-        s_vec<long> &v_cell_ns, s_vec<char> &v_is_core,
+bool are_core_connected(s_vec<float> &v_coords,
+        s_vec<long> &v_cell_begin,
+        s_vec<long> &v_cell_ns,
+        s_vec<char> &v_is_core,
         long const c1, long const c2, long const n_dim, const float e2) noexcept {
     for (auto k1 = 0; k1 < v_cell_ns[c1]; ++k1) {
         if (!v_is_core[v_cell_begin[c1]+k1]) {
@@ -40,7 +42,7 @@ bool are_core_connected(s_vec<float> &v_coords, s_vec<long> &v_cell_begin,
 bool flatten_labels(std::vector<long> &v_local_min_labels) noexcept {
     bool is_update = false;
     #pragma omp parallel for schedule(guided)
-    for (auto i = 0; i < v_local_min_labels.size(); ++i) {
+    for (unsigned long i = 0; i < v_local_min_labels.size(); ++i) {
         if (v_local_min_labels[i] == i || v_local_min_labels[i] == UNASSIGNED)
             continue;
         auto label = v_local_min_labels[i];
@@ -57,7 +59,7 @@ bool flatten_labels(std::vector<long> &v_local_min_labels) noexcept {
     return is_update;
 }
 
-void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree_new &nc) noexcept {
+void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree &nc) noexcept {
     std::vector<long> v_local_min_labels(nc.vv_cell_begin[0].size());
     std::iota(v_local_min_labels.begin(), v_local_min_labels.end(), 0);
 
@@ -188,8 +190,12 @@ void cell_processor::determine_cell_labels(s_vec<float> &v_coords, s_vec<long> v
 }
 
 void update_type(s_vec<long> &v_cell_ns,
-        s_vec<long> &v_cell_begin, s_vec<long> &v_cell_nps, s_vec<long> &v_point_nps,
-        s_vec<char> &is_core, s_vec<char> &v_types, const long c, const long m) noexcept {
+        s_vec<long> &v_cell_begin,
+        s_vec<long> &v_cell_nps,
+        s_vec<long> &v_point_nps,
+        s_vec<char> &is_core,
+        s_vec<char> &v_types,
+        long const c, long const m) noexcept {
     if (v_cell_nps[c] >= m) {
         v_types[c] = ALL_CORES;
         for (auto j = 0; j < v_cell_ns[c]; ++j) {
@@ -216,7 +222,7 @@ void update_type(s_vec<long> &v_cell_ns,
     }
 }
 
-void cell_processor::infer_types(nc_tree_new &nc) noexcept {
+void cell_processor::infer_types(nc_tree &nc) noexcept {
     v_is_core.resize(nc.n_coords, UNKNOWN);
     v_point_labels.resize(nc.n_coords, UNASSIGNED);
     #pragma omp parallel for schedule(guided)
@@ -317,7 +323,7 @@ char process_pair_proximity(s_vec<float> &v_coords,
     return are_connected;
 }
 
-void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree_new &nc) noexcept {
+void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree &nc) noexcept {
     v_leaf_cell_np = nc.vv_cell_ns[0];
     v_leaf_cell_type.resize(v_leaf_cell_np.size(), UNKNOWN);
     v_point_np.resize(nc.n_coords, 0);
@@ -378,13 +384,12 @@ void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, 
             v_edge_conn[i/2] = are_connected;
         }
     }
-
 }
 
 void cell_processor::get_result_meta(long &n_cores, long &n_noise, long &clusters) noexcept {
     long sum = 0;
     #pragma omp parallel for reduction(+:sum)
-    for (long i = 0; i < v_is_core.size(); ++i) {
+    for (auto i = 0; i < v_is_core.size(); ++i) {
         if (v_is_core[i])
             ++sum;
     }
@@ -392,7 +397,7 @@ void cell_processor::get_result_meta(long &n_cores, long &n_noise, long &cluster
 
     sum = 0;
     #pragma omp parallel for reduction(+:sum)
-    for (long i = 0; i < v_point_labels.size(); ++i) {
+    for (auto i = 0; i < v_point_labels.size(); ++i) {
         if (v_point_labels[i] == UNDEFINED)
             ++sum;
     }
@@ -400,14 +405,14 @@ void cell_processor::get_result_meta(long &n_cores, long &n_noise, long &cluster
 
     sum = 0;
     #pragma omp parallel for reduction(+:sum)
-    for (long i = 0; i < v_point_labels.size(); ++i) {
+    for (auto i = 0; i < v_point_labels.size(); ++i) {
         if (v_point_labels[i] == i)
             ++sum;
     }
     clusters = sum;
 }
 
-void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree_new &nc1,
-        nc_tree_new &nc2) noexcept {
+void cell_processor::process_edges(s_vec<float> &v_coords, s_vec<long> v_edges, nc_tree &nc1,
+        nc_tree &nc2) noexcept {
 
 }
