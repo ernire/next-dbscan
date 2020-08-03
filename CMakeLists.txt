@@ -37,17 +37,16 @@ set(NDB_FILES src/nextdbscan.cpp src/deep_io.cpp src/nextdbscan_omp.cpp src/nc_t
 
 if(IS_MPI)
     find_package(MPI REQUIRED)
+#    find_package(OpenMP REQUIRED)
     # Include MPI includes
     include_directories(${MPI_INCLUDE_PATH})
     SET(CMAKE_CXX_COMPILER "${MPI_CXX_COMPILER}")
     SET(CMAKE_VERBOSE_MAKEFILE ON)
 
-    set(CMAKE_CXX_FLAGS "-Wall")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 ")
-#    set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -O3 -fopenmp -fno-exceptions")
+    add_definitions(-DMPI_ON)
 
-#    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
+    set(CMAKE_CXX_FLAGS "-Wall")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 ")
     add_executable(next-dbscan src/main.cpp ${NDB_FILES})
     if(MPI_COMPILE_FLAGS)
         set_target_properties(next-dbscan PROPERTIES
@@ -57,20 +56,16 @@ if(IS_MPI)
         set_target_properties(next-dbscan PROPERTIES
                 LINK_FLAGS "${MPI_LINK_FLAGS}")
     endif()
-
     target_link_libraries(next-dbscan ${MPI_LIBRARIES})
-#else()
-#    set(GCC_COVERAGE_COMPILE_FLAGS "-std=c++17 -Wall -Wextra -O3 -fopenmp -fno-exceptions")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
-#    set(NDB_FILES src/nextdbscan.cpp src/deep_io.cpp src/nextdbscan_omp.cpp src/nc_tree.cpp
-#            src/cell_processor.cpp)
-#    add_executable(ndbscan src/main.cpp ${NDB_FILES})
-#    add_executable(normalize src/normalizer.cpp ${NDB_FILES})
-#    add_executable(csv2bin src/csv2bin.cpp src/deep_io.cpp)
+    else()
+        set(GCC_COVERAGE_COMPILE_FLAGS "-std=c++17 -Wall -Wextra -O3 -fopenmp -fno-exceptions")
+        set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
+        set(NDB_FILES src/nextdbscan.cpp src/deep_io.cpp src/nextdbscan_omp.cpp src/nc_tree.cpp
+                src/cell_processor.cpp)
+        add_executable(ndbscan src/main.cpp ${NDB_FILES})
+        add_executable(normalize src/normalizer.cpp ${NDB_FILES})
+        add_executable(csv2bin src/csv2bin.cpp src/deep_io.cpp)
 endif()
-
-#set(CMAKE_CUDA_STANDARD 17)
-#set(GCC_COVERAGE_COMPILE_FLAGS "-std=c++17 -Wall -Wextra -O3 -fopenmp -fno-exceptions -ffast-math -funroll-loops")
 
 #add_executable(ndbscan-cu src/main.cpp src/nextdbscan_cu.cu ${NDB_FILES})
 #set_target_properties( ndbscan-cu PROPERTIES COMPILE_FLAGS "-DCUDA_ON=1" )

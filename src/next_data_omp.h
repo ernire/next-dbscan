@@ -8,7 +8,7 @@
 
 #include <mpi.h>
 #include "next_util.h"
-#define MPI_ON
+//#define MPI_ON
 
 class next_data {
 public:

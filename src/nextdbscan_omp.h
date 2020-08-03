@@ -30,6 +30,9 @@ using d_vec = std::vector<std::vector<T>>;
 
 template<class T, class O>
 void _atomic_op(T* address, T value, O op) {
+    if (op(value, *address)) {
+        *address = value;
+    }
     /*
     T previous = __sync_fetch_and_add(address, 0);
 

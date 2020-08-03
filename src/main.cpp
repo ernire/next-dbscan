@@ -26,11 +26,12 @@ SOFTWARE.
 #include "nextdbscan.h"
 #include "deep_io.h"
 #include "next_util.h"
-#define MPI_ON
+//#define MPI_ON
 //#define HDF5_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
+#include <omp.h>
 
 void usage() {
     std::cout << "NextDBSCAN compiled for OpenMP";
@@ -154,6 +155,15 @@ int main(int argc, char** argv) {
     blocks_no = mpi_size;
     std::cout << "rank: " << mpi_rank << " of " << mpi_size << std::endl;
 #endif
+
+//    omp_set_num_threads(4);
+//    #pragma omp parallel
+//    {
+//        std::cout << "Hello from OpenMP tid " << omp_get_thread_num()  << " : " << omp_get_num_threads() << std::endl;
+//    }
+
+    omp_set_dynamic(0);
+    omp_set_num_threads((int) n_threads);
 
     if (block_index == 0)
         std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "

@@ -30,7 +30,7 @@ SOFTWARE.
 #include <functional>
 #include <numeric>
 #include <random>
-
+//#define MPI_ON
 #ifdef MPI_ON
 #include <mpi.h>
 #endif
@@ -146,7 +146,7 @@ namespace nextdbscan {
     }
 
     unsigned long read_input(const std::string &in_file, s_vec<float> &v_points, unsigned long &n, unsigned long &max_d,
-            unsigned long const n_nodes, unsigned long const node_index) noexcept {
+            int const n_nodes, int const node_index) noexcept {
         std::string s_cmp = ".bin";
         std::string s_cmp_hdf5_1 = ".h5";
         std::string s_cmp_hdf5_2 = ".hdf5";
@@ -180,8 +180,8 @@ namespace nextdbscan {
         return total_samples;
     }
 
-    result start(unsigned long const m, const float e, long const n_threads, const std::string &in_file,
-            unsigned long const node_index, unsigned long const n_nodes) noexcept {
+    result start(long const m, const float e, long const n_threads, const std::string &in_file,
+            int const node_index, int const n_nodes) noexcept {
 
 
 //        #pragma omp parallel
@@ -192,8 +192,12 @@ namespace nextdbscan {
 //        }
 
         auto time_start = std::chrono::high_resolution_clock::now();
-        omp_set_dynamic(0);
-        omp_set_num_threads((int) n_threads);
+//        omp_set_dynamic(0);
+//        omp_set_num_threads((int) n_threads);
+//        #pragma omp parallel
+//        {
+//            std::cout << "Hello from OpenMP tid " << omp_get_thread_num()  << " : " << omp_get_num_threads() << std::endl;
+//        }
         unsigned long n, n_dim, total_samples;
         s_vec<float> v_coords;
         if (node_index == 0) {
@@ -202,6 +206,7 @@ namespace nextdbscan {
         measure_duration("Input Read: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
             total_samples = read_input(in_file, v_coords, n, n_dim, n_nodes, node_index);
         });
+        auto time_data_read = std::chrono::high_resolution_clock::now();
 
         if (node_index == 0) {
             std::cout << "Found " << n << " points in " << n_dim << " dimensions" << " and read " << n <<
@@ -227,29 +232,34 @@ namespace nextdbscan {
 
         cell_processor cp(n_threads);
 
-        auto nc = nc_tree(v_coords, v_min_bounds, v_max_bounds, m, e, n, n_dim, n_level, e_lowest);
+        auto nc = nc_tree(v_coords, v_min_bounds, v_max_bounds, static_cast<const unsigned long>(m), e, n, n_dim,
+                n_level, e_lowest);
         if (n_nodes > 1) {
-            measure_duration("Partition and Distribute: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
-                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
+            measure_duration("Partition and Distribute: ", node_index == 0, (const std::function<void()> &) [&]() ->
+            void {
+                nc.partition_data_distributed(n_nodes, node_index, n_threads);
+//                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
             });
         }
 
-        /*
+
         if (n_threads > 1) {
             measure_duration("Partition Data: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
-                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
+                nc.partition_data_shared(n_threads);
             });
         }
-         */
-/*
+
+
 
 measure_duration("Build NC Tree: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
     if (n_threads > 1) {
-        nc.build_tree_parallel(n_threads);
+        nc.build_tree_parallel(static_cast<const unsigned long>(n_threads));
     } else {
         nc.build_tree();
     }
 });
+
+        nc.print_tree_meta_data();
 
 s_vec<long> v_edges;
 measure_duration("Collect Edges: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
@@ -284,7 +294,7 @@ if (!g_quiet && node_index == 0) {
               << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_data_read).count()
               << " milliseconds\n";
 }
-*/
+
         return collect_results(cp, total_samples);
     }
 
