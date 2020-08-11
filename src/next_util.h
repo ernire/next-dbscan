@@ -9,6 +9,12 @@
 #include <iostream>
 #include <algorithm>
 #include <random>
+#ifdef CUDA_ON
+#include "nextdbscan_cu.cuh"
+#endif
+#ifndef CUDA_ON
+#include "nextdbscan_omp.h"
+#endif
 
 template<typename T>
 using random_distribution = std::conditional_t<std::is_integral<T>::value,
@@ -46,7 +52,7 @@ public:
 
     template<class T>
     static void print_vector(const std::string &name, s_vec<T> &v_vec) noexcept {
-        std::cout << name << ": ";
+        std::cout << name;
         for (int i = 0; i < v_vec.size(); ++i) {
             std::cout << v_vec[i] << " ";
         }

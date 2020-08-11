@@ -44,9 +44,12 @@ if(IS_MPI)
     SET(CMAKE_VERBOSE_MAKEFILE ON)
 
     add_definitions(-DMPI_ON)
+    add_definitions(-DDEBUG_ON)
 
     set(CMAKE_CXX_FLAGS "-Wall")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 ")
+#    set(NDB_FILES src/nextdbscan.cpp src/deep_io.cpp src/nextdbscan_omp.cpp src/nc_tree.cpp
+#            src/cell_processor.cpp)
     add_executable(next-dbscan src/main.cpp ${NDB_FILES})
     if(MPI_COMPILE_FLAGS)
         set_target_properties(next-dbscan PROPERTIES

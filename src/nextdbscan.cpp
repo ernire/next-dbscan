@@ -30,10 +30,6 @@ SOFTWARE.
 #include <functional>
 #include <numeric>
 #include <random>
-//#define MPI_ON
-#ifdef MPI_ON
-#include <mpi.h>
-#endif
 #ifdef HDF5_ON
 #include <hdf5.h>
 #endif
@@ -43,6 +39,7 @@ SOFTWARE.
 #include "next_util.h"
 #include "next_data_omp.h"
 #include "cell_processor.h"
+#include "next_mpi.h"
 
 
 namespace nextdbscan {
@@ -180,8 +177,7 @@ namespace nextdbscan {
         return total_samples;
     }
 
-    result start(long const m, const float e, long const n_threads, const std::string &in_file,
-            int const node_index, int const n_nodes) noexcept {
+    result start(long const m, const float e, long const n_threads, const std::string &in_file, nextMPI mpi) noexcept {
 
 
 //        #pragma omp parallel
@@ -198,25 +194,26 @@ namespace nextdbscan {
 //        {
 //            std::cout << "Hello from OpenMP tid " << omp_get_thread_num()  << " : " << omp_get_num_threads() << std::endl;
 //        }
+
         unsigned long n, n_dim, total_samples;
         s_vec<float> v_coords;
-        if (node_index == 0) {
-            std::cout << "Total of " << (n_threads * n_nodes) << " cores used on " << n_nodes << " node(s)." << std::endl;
+        if (mpi.rank == 0) {
+            std::cout << "Total of " << (n_threads * mpi.n_nodes) << " cores used on " << mpi.n_nodes << " node(s)." << std::endl;
         }
-        measure_duration("Input Read: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
-            total_samples = read_input(in_file, v_coords, n, n_dim, n_nodes, node_index);
+        measure_duration("Input Read: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
+            total_samples = read_input(in_file, v_coords, n, n_dim, mpi.n_nodes, mpi.rank);
         });
         auto time_data_read = std::chrono::high_resolution_clock::now();
 
-        if (node_index == 0) {
+        if (mpi.rank == 0) {
             std::cout << "Found " << n << " points in " << n_dim << " dimensions" << " and read " << n <<
                       " of " << total_samples << " samples." << std::endl;
         }
         s_vec<float> v_min_bounds(n_dim);
         s_vec<float> v_max_bounds(n_dim);
         auto e_lowest = get_lowest_e(e, n_dim);
-        auto n_level = next_data::determine_data_boundaries(&v_min_bounds[0], &v_max_bounds[0], &v_coords[0],
-                n_dim, n, e_lowest);
+        auto n_level = next_data::determine_data_boundaries(v_min_bounds, v_max_bounds, &v_coords[0],
+                n_dim, n, e_lowest, mpi);
 
         next_util::print_vector("min bounds: ", v_min_bounds);
         next_util::print_vector("max bounds: ", v_max_bounds);
@@ -234,24 +231,24 @@ namespace nextdbscan {
 
         auto nc = nc_tree(v_coords, v_min_bounds, v_max_bounds, static_cast<const unsigned long>(m), e, n, n_dim,
                 n_level, e_lowest);
-        if (n_nodes > 1) {
-            measure_duration("Partition and Distribute: ", node_index == 0, (const std::function<void()> &) [&]() ->
+        if (mpi.n_nodes > 1) {
+            measure_duration("Partition and Distribute: ", mpi.rank == 0, (const std::function<void()> &) [&]() ->
             void {
-                nc.partition_data_distributed(n_nodes, node_index, n_threads);
+                nc.partition_data_distributed(mpi, n_threads);
 //                nc.partition_data(n_threads, static_cast<const unsigned long>(n_threads));
             });
         }
 
 
         if (n_threads > 1) {
-            measure_duration("Partition Data: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+            measure_duration("Partition Data: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
                 nc.partition_data_shared(n_threads);
             });
         }
 
 
 
-measure_duration("Build NC Tree: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+measure_duration("Build NC Tree: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
     if (n_threads > 1) {
         nc.build_tree_parallel(static_cast<const unsigned long>(n_threads));
     } else {
@@ -262,7 +259,7 @@ measure_duration("Build NC Tree: ", node_index == 0, (const std::function<void()
         nc.print_tree_meta_data();
 
 s_vec<long> v_edges;
-measure_duration("Collect Edges: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+measure_duration("Collect Edges: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
     // TODO TMP
     if (n_threads > 1) {
 //                nc.collect_edges_parallel(v_edges, n_threads);
@@ -270,23 +267,29 @@ measure_duration("Collect Edges: ", node_index == 0, (const std::function<void()
     } else {
         nc.collect_edges(v_edges);
     }
+    if (mpi.n_nodes > 1) {
+        s_vec<long> v_edges_distributed;
+        s_vec<int> v_edges_per_node;
+        nc.collect_edges_distributed(v_edges_distributed, v_edges_per_node, n_threads, mpi);
+    }
 });
+
 
 std::cout << "Edges size: " << v_edges.size()/2 << std::endl;
 
-measure_duration("Process Edges: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+measure_duration("Process Edges: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
     cp.process_edges(v_coords, v_edges, nc);
 });
-measure_duration("Infer Types: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+measure_duration("Infer Types: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
     cp.infer_types(nc);
 });
 
-measure_duration("Determine Labels: ", node_index == 0, (const std::function<void()> &) [&]() -> void {
+measure_duration("Determine Labels: ", mpi.rank == 0, (const std::function<void()> &) [&]() -> void {
     cp.determine_cell_labels(v_coords, v_edges, nc);
 });
 
 auto time_end = std::chrono::high_resolution_clock::now();
-if (!g_quiet && node_index == 0) {
+if (!g_quiet && mpi.rank == 0) {
     std::cout << "Total Execution Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count()
               << " milliseconds\n";

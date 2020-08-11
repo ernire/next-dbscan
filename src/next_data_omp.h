@@ -8,13 +8,13 @@
 
 #include <mpi.h>
 #include "next_util.h"
-//#define MPI_ON
+#include "next_mpi.h"
 
 class next_data {
 public:
     inline static bool is_in_reach(const float *min1, const float *max1, const float *min2, const float *max2,
-            long const max_d, float const e) noexcept {
-        for (auto d = 0; d < max_d; ++d) {
+            long const n_dim, float const e) noexcept {
+        for (auto d = 0; d < n_dim; ++d) {
             if ((min2[d] > (max1[d] + e) || max2[d] < (min1[d] - e))) {
                 return false;
             }
@@ -48,22 +48,29 @@ public:
         }
     }
 
-    static unsigned long determine_data_boundaries(float *min_bounds, float *max_bounds, float *v_coords,
-            long const n_dim, unsigned long const n_coords, float const lowest_e) noexcept {
+    static unsigned long determine_data_boundaries(s_vec<float> &v_min_bounds, s_vec<float> &v_max_bounds,
+            float *v_coords, long const n_dim, unsigned long const n_coords, float const lowest_e, nextMPI &mpi)
+            noexcept {
         float max_limit = INT32_MIN;
-        calc_bounds(min_bounds, max_bounds, v_coords, n_dim, n_coords);
-        #ifdef MPI_ON
+        calc_bounds(&v_min_bounds[0], &v_max_bounds[0], v_coords, n_dim, n_coords);
+        mpi.allReduceMin(v_min_bounds, v_min_bounds, n_dim);
+        mpi.allReduceMax(v_max_bounds, v_max_bounds, n_dim);
+//        #ifdef MPI_ON
+//        MPI_Allreduce(MPI_IN_PLACE, &min_bounds[0], n_dim, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
+//        MPI_Allreduce(MPI_IN_PLACE, &max_bounds[0], n_dim, MPI_FLOAT, MPI_MAX, MPI_COMM_WORLD);
+        /*
         std::vector<float> v_global_min_bounds(static_cast<unsigned long long>(n_dim));
         std::vector<float> v_global_max_bounds(static_cast<unsigned long long>(n_dim));
         MPI_Allreduce(&min_bounds[0], &v_global_min_bounds[0], n_dim, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
         MPI_Allreduce(&max_bounds[0], &v_global_max_bounds[0], n_dim, MPI_FLOAT, MPI_MAX, MPI_COMM_WORLD);
         std::copy(v_global_min_bounds.begin(), v_global_min_bounds.end(), &min_bounds[0]);
         std::copy(v_global_max_bounds.begin(), v_global_max_bounds.end(), &max_bounds[0]);
-        #endif
+         */
+//        #endif
         #pragma omp parallel for reduction(max: max_limit)
         for (auto d = 0; d < n_dim; d++) {
-            if (max_bounds[d] - min_bounds[d] > max_limit)
-                max_limit = max_bounds[d] - min_bounds[d];
+            if (v_max_bounds[d] - v_min_bounds[d] > max_limit)
+                max_limit = v_max_bounds[d] - v_min_bounds[d];
         }
         return static_cast<unsigned long>(ceilf(logf(max_limit / lowest_e) / logf(2))) + 1;
     }

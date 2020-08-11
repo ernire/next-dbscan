@@ -25,6 +25,7 @@ SOFTWARE.
 #include <string>
 #include <vector>
 #include <cmath>
+#include "next_mpi.h"
 
 typedef unsigned long long ull;
 
@@ -50,8 +51,7 @@ namespace nextdbscan {
             float const e,
             long const n_threads,
             const std::string &in_file,
-            int const node_index,
-            int const n_nodes) noexcept;
+            nextMPI mpi) noexcept;
 
 };
 

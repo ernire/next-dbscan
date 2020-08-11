@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
     }
 
     uint block_index = 0;
-    uint blocks_no = 1;
+//    uint blocks_no = 1;
 #ifdef MPI_ON
     MPI_Init(&argc, &argv);
     int mpi_size;
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     int mpi_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     block_index = mpi_rank;
-    blocks_no = mpi_size;
+//    blocks_no = mpi_size;
     std::cout << "rank: " << mpi_rank << " of " << mpi_size << std::endl;
 #endif
 
@@ -164,11 +164,16 @@ int main(int argc, char** argv) {
 
     omp_set_dynamic(0);
     omp_set_num_threads((int) n_threads);
-
     if (block_index == 0)
         std::cout << "Starting NextDBSCAN with m: " << m << ", e: " << e << ", t: "
                   << n_threads << " file:" << input_file << std::endl;
-    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, block_index, blocks_no);
+    nextdbscan::result results = nextdbscan::start(m, e, n_threads, input_file, /*block_index, blocks_no,*/
+#ifdef MPI_ON
+            nextMPI(mpi_rank, MPI_COMM_WORLD, mpi_size)
+#else
+            nextMPI(0, 0, 1)
+#endif
+            );
     if (block_index == 0) {
         std::cout << std::endl;
         std::cout << "Estimated clusters: " << results.clusters << std::endl;
